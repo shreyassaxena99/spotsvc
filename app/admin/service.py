@@ -138,6 +138,8 @@ def create_spot(
         "is_active": True,
         "created_by": str(admin_user_id) if admin_user_id else None,
         "google_data_updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     spot_data = {k: v for k, v in spot_data.items() if v is not None}
 
