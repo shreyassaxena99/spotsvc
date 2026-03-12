@@ -5,8 +5,8 @@ Backend API for an iOS app that shows curated work-friendly spots (cafes, gyms, 
 
 ## Tech Stack
 - **Framework:** Python 3.12 + FastAPI (async throughout)
-- **Database:** Supabase Postgres + PostGIS (connection pooler, port 6543)
-- **ORM:** SQLAlchemy 2.0 (async, using `asyncpg`)
+- **Database:** Supabase Postgres + PostGIS — accessed via **Supabase Python client** (REST/HTTPS), not direct TCP
+- **DB Client:** `supabase-py` v2 — uses `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. No SQLAlchemy, no asyncpg.
 - **Auth:** Supabase Auth (Apple + Google sign-in) — no auth endpoints in this server. iOS app authenticates directly with Supabase. This server only validates Supabase JWTs.
 - **External API:** Google Places API (New) via `requests`
 - **Validation:** Pydantic v2
@@ -15,45 +15,29 @@ Backend API for an iOS app that shows curated work-friendly spots (cafes, gyms, 
 ## Project Structure
 ```
 app/
-├── main.py                     # FastAPI app, CORS, lifespan (db startup/shutdown)
+├── main.py                     # FastAPI app, CORS, lifespan, /health endpoint
 ├── config.py                   # pydantic-settings: SUPABASE_URL, SUPABASE_JWT_SECRET,
-│                               #   SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL,
-│                               #   GOOGLE_PLACES_API_KEY
-├── dependencies.py             # get_db, get_current_user, require_admin
-│
-├── spots/
-│   ├── router.py               # GET /spots, GET /spots/{id}
-│   ├── service.py              # PostGIS queries, is_open_now computation
-│   └── schemas.py
-│
-├── saved/
-│   ├── router.py               # GET/POST/DELETE /me/saved-spots
-│   └── schemas.py
-│
-├── users/
-│   ├── router.py               # GET/PATCH/DELETE /me
-│   └── schemas.py
+│                               #   SUPABASE_SERVICE_ROLE_KEY, GOOGLE_PLACES_API_KEY
+├── dependencies.py             # get_current_user, get_admin_user, no_auth (temp bypass)
 │
 ├── admin/
 │   ├── router.py               # Spot CRUD, Google autocomplete proxy, Google place preview
-│   ├── service.py              # Fetch + store Google data logic
+│   ├── service.py              # Supabase client DB calls + Google data fetch logic (sync)
 │   └── schemas.py
 │
 ├── google_places/
-│   ├── client.py               # GooglePlacesClient class using requests
+│   ├── client.py               # GooglePlacesClient class using requests (sync)
 │   └── schemas.py              # Pydantic models for Google responses
 │
 ├── db/
-│   ├── database.py             # async engine + sessionmaker via Supabase connection pooler
-│   └── models.py               # SQLAlchemy ORM models
+│   ├── database.py             # Supabase client singleton (create_client)
+│   └── models.py               # SpotCategory + AccessType enums (plain Python enums)
 │
-├── core/
-│   ├── security.py             # decode_supabase_jwt(), get_current_user(), require_admin()
-│   └── middleware.py           # Rate limiting, request logging
-│
-└── scripts/
-    └── refresh_google_data.py  # Standalone weekly cron script
+└── core/
+    └── security.py             # decode_supabase_jwt(), require_admin_role()
 ```
+
+**Not yet implemented:** `spots/`, `saved/`, `users/` modules (future iOS endpoints).
 
 ## Authentication Rules
 - **No auth endpoints in this server.** Auth is iOS ↔ Supabase directly.
@@ -61,13 +45,39 @@ app/
 - Validate with `python-jose`: decode with `SUPABASE_JWT_SECRET`, algorithm `HS256`, audience `authenticated`.
 - Extract `user_id` from `payload["sub"]`.
 - Admin check: `payload["app_metadata"]["role"] == "admin"`.
-- Use FastAPI `Depends()` for `get_current_user` and `require_admin`.
+- **Currently:** Admin auth is bypassed via `no_auth` dependency (returns `{}`). Re-enable by swapping `no_auth` back to `get_admin_user` in `admin/router.py`.
 
 ## Database
 
-Tables are created manually via Supabase SQL Editor. No Alembic or migration tooling. The SQLAlchemy models in `db/models.py` mirror the tables for ORM usage but do not manage schema creation.
+Tables are created manually via Supabase SQL Editor. All DB access goes through the Supabase Python client (HTTP/PostgREST), not direct Postgres connections.
 
-### SQL to run in Supabase SQL Editor
+The `supabase` singleton in `db/database.py` uses the **service role key** — this bypasses Row Level Security, which is correct for server-side operations.
+
+### spots table — additional columns added post-initial schema
+
+The `location` column (PostGIS geography) is set automatically by a trigger from `latitude`/`longitude` floats. Always insert `latitude` and `longitude`; never set `location` directly.
+
+```sql
+-- Run once in Supabase SQL Editor if not already done
+ALTER TABLE spots ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE spots ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+
+CREATE OR REPLACE FUNCTION set_spot_location()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.latitude IS NOT NULL AND NEW.longitude IS NOT NULL THEN
+    NEW.location = ST_SetSRID(ST_MakePoint(NEW.longitude, NEW.latitude), 4326)::geography;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER spots_location_trigger
+  BEFORE INSERT OR UPDATE ON spots
+  FOR EACH ROW EXECUTE FUNCTION set_spot_location();
+```
+
+### Full initial schema
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -112,6 +122,8 @@ CREATE TABLE spots (
     formatted_address     VARCHAR(500),
     short_address         VARCHAR(300),
     location              GEOGRAPHY(POINT, 4326) NOT NULL,
+    latitude              DOUBLE PRECISION,
+    longitude             DOUBLE PRECISION,
     phone_national        VARCHAR(50),
     phone_international   VARCHAR(50),
     google_maps_uri       VARCHAR(500),
@@ -187,111 +199,76 @@ CREATE POLICY "Users insert own saves" ON saved_spots FOR INSERT WITH CHECK (aut
 CREATE POLICY "Users delete own saves" ON saved_spots FOR DELETE USING (auth.uid() = user_id);
 ```
 
-## API Endpoints
+## Implemented API Endpoints
 
-### GET /spots
-Query params: `lat` (required), `lng` (required), `radius` (default 2000, max 5000), `category` (comma-separated), `access_type` (comma-separated).
+### GET /health
+Returns `{"status": "ok", "db": "ok"}`. Pings Supabase via `spots` table select.
 
-PostGIS query using `ST_DWithin` and `ST_Distance`. Compute `is_open_now` in Python from `regular_hours` + `timezone`. Return: id, name, category, latitude, longitude, distance_meters, is_open_now, price_level, rating.
-
-### GET /spots/{id}
-Query params: `lat`, `lng` (for distance calculation).
-
-Return full spot data from database. Compute `is_open_now` and `distance_meters`. Include `is_saved` boolean (check saved_spots for current user).
-
-### GET /me/saved-spots
-Query params: optional `lat`, `lng` for distance.
-
-Return saved spots in same lightweight format as GET /spots.
-
-### POST /me/saved-spots/{spot_id}
-Insert into saved_spots. 409 if already saved.
-
-### DELETE /me/saved-spots/{spot_id}
-Delete from saved_spots. 404 if not saved.
-
-### GET /me
-Return profile (display_name, email_opt_in) + email from Supabase auth (use service role key to call `supabase.auth.admin.get_user_by_id`).
-
-### PATCH /me
-Update display_name and/or email_opt_in.
-
-### DELETE /me
-Delete profile (CASCADE deletes saved_spots) + delete auth user via Supabase Admin API.
-
-### GET /admin/spots
-Admin only. Paginated list of all spots (including inactive). Search by name.
-
-### POST /admin/spots
-Admin only. Accepts `google_place_id` + curated fields. Backend calls Google Places API via `requests`, stores everything in spots table.
-
-### PUT /admin/spots/{id}
-Admin only. Update curated fields only (category, access_type, wifi, power, noise, description, admin_notes, is_active).
-
-### DELETE /admin/spots/{id}
-Admin only. Soft-delete: set `is_active = false`.
-
-### POST /admin/spots/{id}/refresh
-Admin only. Re-fetch Google Places data for a single spot and update the row.
-
-### GET /admin/google-autocomplete
-Admin only. Query param: `q`. Proxies to Google Places Autocomplete API via `requests`. Return suggestions with place_ids.
+### GET /admin/google-autocomplete?q=
+Proxies to Google Places Autocomplete biased to London (20km radius). Returns `suggestions[]` with `place_id`, `text`, `secondary_text`.
 
 ### GET /admin/google-place/{place_id}
-Admin only. Fetches full Google Place Details via `requests` for preview before adding a spot.
+Fetches full Google Place details for preview before saving. Returns `PlaceDetails`.
+
+### GET /admin/spots
+Paginated list of all spots (active + inactive). Supports `search` param (name ilike). Returns `SpotListResponse`.
+
+### POST /admin/spots
+Accepts `google_place_id` + curated fields (`category`, `access_type`, `wifi_available`, `power_outlets`, `noise_level`, `description`, `admin_notes`). Fetches all data from Google, stores in DB. Returns `SpotResponse`.
+
+## Planned API Endpoints (not yet implemented)
+
+- `GET /spots` — PostGIS proximity search (ST_DWithin) with `is_open_now` computation
+- `GET /spots/{id}` — full spot detail with `is_saved`
+- `GET/POST/DELETE /me/saved-spots`
+- `GET/PATCH/DELETE /me`
+- `PUT /admin/spots/{id}` — update curated fields
+- `DELETE /admin/spots/{id}` — soft delete
+- `POST /admin/spots/{id}/refresh` — re-fetch Google data
 
 ## Google Places Client
 
-Use `requests` library. Wrap in a `GooglePlacesClient` class. Since `requests` is synchronous, call it from FastAPI endpoints using `run_in_executor` or just call synchronously (acceptable for admin endpoints and the weekly script).
+Sync `requests.Session`. Called directly from async endpoints (acceptable for low-traffic admin use).
 
 ### Place Details
 ```
 GET https://places.googleapis.com/v1/places/{place_id}
-Headers:
-  X-Goog-Api-Key: {GOOGLE_PLACES_API_KEY}
-  X-Goog-FieldMask: displayName,formattedAddress,shortFormattedAddress,location,nationalPhoneNumber,internationalPhoneNumber,googleMapsUri,websiteUri,priceLevel,rating,userRatingCount,editorialSummary,businessStatus,regularOpeningHours,currentOpeningHours,photos,outdoorSeating,restroom,servesBreakfast,servesLunch,servesDinner,servesBrunch,servesCoffee,allowsDogs,goodForGroups,dineIn,takeout,delivery,reservable,parkingOptions,paymentOptions,accessibilityOptions,timeZone
+X-Goog-Api-Key: {key}
+X-Goog-FieldMask: <full mask — all fields>
 ```
 
 ### Autocomplete
 ```
 POST https://places.googleapis.com/v1/places:autocomplete
-Headers:
-  X-Goog-Api-Key: {GOOGLE_PLACES_API_KEY}
-Body:
-  { "input": "query", "locationBias": { "circle": { "center": { "latitude": 51.5074, "longitude": -0.1278 }, "radius": 20000 } } }
+X-Goog-Api-Key: {key}
+Body: { "input": "...", "locationBias": { circle centred on London, 20km } }
 ```
 
-## is_open_now Logic
+## is_open_now Logic (for future spots endpoint)
 Compute from `regular_hours` JSON + `timezone` field. Google's `regularOpeningHours.periods` uses Sunday=0 day format. Convert Python's Monday=0 weekday to Google's format. Compare current time in spot's timezone against periods.
 
-## Weekly Refresh Script (scripts/refresh_google_data.py)
-Standalone script using `requests`. Fetches all active spots, calls Google Place Details for each, updates the row. Add `time.sleep(0.1)` between calls for rate limiting. Log failures, don't stop on individual errors. Update `google_data_updated_at` on success.
-
 ## Code Style & Conventions
-- Async for all FastAPI endpoints and database queries.
-- `requests` (synchronous) for Google Places API calls — use `run_in_executor` in async endpoints if needed.
+- Async for all FastAPI endpoint handlers.
+- DB service functions (`admin/service.py`) are **sync** — Supabase client is synchronous. Acceptable for admin-only endpoints.
+- `requests` (synchronous) for Google Places API calls — same pattern.
 - Type hints on all function signatures.
 - Pydantic v2 models for all request/response schemas.
 - Use `from __future__ import annotations` in all files.
 - Use `UUID` type for all IDs.
 - Environment variables via pydantic-settings `BaseSettings`.
 - Error responses use FastAPI's `HTTPException`.
-- All database queries use parameterized queries (never f-strings).
 - Use `logging` module, not print().
 
 ## Dependencies (requirements.txt)
 ```
-fastapi
-uvicorn[standard]
-sqlalchemy[asyncio]
-asyncpg
-python-jose[cryptography]
-pydantic-settings
-requests
-geoalchemy2
-supabase
-python-multipart
-pytz
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+requests==2.32.3
+python-jose[cryptography]==3.3.0
+pydantic-settings==2.7.1
+supabase==2.11.0
+python-multipart==0.0.20
+pytz==2024.2
 ```
 
 ## Environment Variables
@@ -299,6 +276,6 @@ pytz
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_JWT_SECRET=your-jwt-secret
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SUPABASE_DB_URL=postgresql+asyncpg://postgres.xxx:password@aws-0-eu-west-2.pooler.supabase.com:6543/postgres
 GOOGLE_PLACES_API_KEY=your-api-key
+APP_ENV=production
 ```
