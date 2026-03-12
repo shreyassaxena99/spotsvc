@@ -2,7 +2,7 @@
 
 Backend API for a curated London work-spots app. iOS users see cafes, gyms, hotel lobbies, and coworking spaces on a map, view details, and save favourites. An admin panel lets the team add and manage spots.
 
-Built with **FastAPI** (async), **Supabase** (Postgres + PostGIS + Auth), **Redis** (Google Places cache), and deployed on **Railway**.
+Built with **FastAPI** (async), **Supabase** (Postgres + PostGIS + Auth), and deployed on **Railway**.
 
 ---
 
@@ -11,48 +11,93 @@ Built with **FastAPI** (async), **Supabase** (Postgres + PostGIS + Auth), **Redi
 ```
 iOS App (Swift)          Admin Panel (React)
      │                          │
-     │ Supabase JWT             │ Supabase JWT
+     │ Supabase JWT             │ Supabase JWT + Admin Password
      ▼                          ▼
 ┌─────────────────────────────────────┐
 │            spotsvc (FastAPI)         │
 │                                     │
-│  /admin/*   →  admin router         │
-│  /spots/*   →  spots router (TODO)  │
-│  /me/*      →  users router (TODO)  │
+│  /spots/*       →  spots router     │
+│  /suggestions   →  public           │
+│  /admin/*       →  admin router     │
 └────────────┬──────────────┬─────────┘
              │              │
-    ┌─────────┴──┐   ┌──────┴────────┐   ┌────────────────┐
-    │  Supabase   │   │  Redis        │   │ Google Places  │
-    │  Postgres   │   │  (Upstash)    │   │ API (New)      │
-    │  + PostGIS  │   │  1-hr TTL     │   │                │
-    └─────────────┘   └───────────────┘   └────────────────┘
+    ┌─────────┴──┐   ┌──────┴────────┐
+    │  Supabase   │   │ Google Places  │
+    │  Postgres   │   │ API (New)      │
+    │  + PostGIS  │   │                │
+    └─────────────┘   └───────────────┘
 ```
 
 **Key principles:**
-- Google Places is the source of truth for place metadata (name, address, hours, photos, busyness). We cache it in Redis; we do not duplicate it in our DB.
-- Our DB stores only what Google can't provide: coordinates (for PostGIS geo queries), category, access type, amenities, and editorial copy.
+- Google Places is the source of truth for place metadata (name, address, hours, photos). All Google data is fetched at spot-creation time and stored in our DB.
+- Our DB adds what Google can't provide: category, access type, wifi/power/noise ratings, and editorial copy.
 - Auth is fully handled between the client and Supabase — this server only validates the JWT Supabase issues.
+- DB access goes through the **Supabase Python client** (HTTP/REST), not a direct Postgres connection.
 
 ---
 
-## Current capabilities
+## API Endpoints
 
-### Admin — add and list spots (`/admin/*`)
+### Public — spots (`/spots/*`)
 
-The only implemented surface right now. Requires a valid Supabase JWT with `app_metadata.role = "admin"`.
+No authentication required.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/spots` | All active spots as map pins. Supports `?category=` and `?is_open_now=true` filters. |
+| `GET` | `/spots/{id}` | Full detail for a single spot. |
+
+`GET /spots` response:
+```json
+{
+  "spots": [
+    {
+      "id": "...",
+      "name": "Workshop Coffee",
+      "short_address": "27 Clerkenwell Rd, London",
+      "latitude": 51.5225,
+      "longitude": -0.1016,
+      "category": "cafe",
+      "access_type": "purchase_required",
+      "wifi_available": true,
+      "power_outlets": true,
+      "noise_level": "moderate",
+      "rating": 4.5,
+      "is_open_now": true,
+      "cover_photo": "https://..."
+    }
+  ],
+  "total": 42
+}
+```
+
+`category` values: `cafe` `gym` `hotel_lobby` `coworking` `library` `restaurant` `other`
+
+### Public — suggestions (`/suggestions`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/suggestions` | Submit a public suggestion for a new spot. No auth required. |
+
+### Admin — spot management (`/admin/*`)
+
+Requires a valid Supabase JWT with `app_metadata.role = "admin"`, plus the `X-Admin-Password` header.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/admin/google-autocomplete?q=` | Proxy to Google Places Autocomplete, London-biased |
 | `GET` | `/admin/google-place/{place_id}` | Fetch full place details for preview before saving |
 | `GET` | `/admin/spots` | List all spots — paginated, searchable by name |
-| `POST` | `/admin/spots` | Create a spot (fetches name + coords from Google, stores in DB) |
+| `POST` | `/admin/spots` | Create a spot (fetches all data from Google, stores in DB) |
+| `GET` | `/admin/suggestions` | List submitted suggestions (paginated, filterable by status) |
+| `PATCH` | `/admin/suggestions/{id}` | Approve or reject a suggestion. Approving auto-creates the spot. |
+| `POST` | `/admin/validate` | Validate the admin password |
 
 **Add-spot flow:**
 1. Admin types a name → `GET /admin/google-autocomplete?q=Workshop+Coffee` returns suggestions with `place_id`s.
-2. Admin selects one → `GET /admin/google-place/{place_id}` returns a preview (name, address, lat/lng, hours, photos).
-3. Admin fills in the manual fields and submits → `POST /admin/spots`.
-4. Service verifies the `place_id` isn't already in the DB, fetches coordinates from Google, and persists the spot.
+2. Admin selects one → `GET /admin/google-place/{place_id}` returns a preview (name, address, hours, photos).
+3. Admin fills in the curated fields and submits → `POST /admin/spots`.
+4. Service verifies the `place_id` isn't already in the DB, fetches all data from Google, and persists the spot.
 
 **`POST /admin/spots` request body:**
 ```json
@@ -68,26 +113,19 @@ The only implemented surface right now. Requires a valid Supabase JWT with `app_
 }
 ```
 
-`category` options: `cafe` `gym` `hotel_lobby` `coworking` `library` `restaurant` `other`
-
-`access_type` options: `free` `purchase_required` `members_only`
-
 ### Health check
 
-`GET /health` — returns `{"status": "ok"}`. Used by Railway for deployment health checks.
+`GET /health` — returns `{"status": "ok", "db": "ok"}`. Used by Railway for deployment health checks.
 
 ---
 
 ## What's not built yet
 
-- `GET /spots` — map view, nearby spots via PostGIS `ST_DWithin`, no Google calls
-- `GET /spots/:id` — detail view merging DB fields with Redis-cached Google data
-- `PUT /admin/spots/:id` — update curated fields
-- `DELETE /admin/spots/:id` — soft-delete (`is_active = false`)
+- `PUT /admin/spots/{id}` — update curated fields
+- `DELETE /admin/spots/{id}` — soft-delete (`is_active = false`)
+- `POST /admin/spots/{id}/refresh` — re-fetch Google data
 - `GET /me` / `PATCH /me` / `DELETE /me` — user profile endpoints
-- `GET /me/saved-spots` / `POST /me/saved-spots/:id` / `DELETE /me/saved-spots/:id` — save/unsave
-- Redis caching layer (client exists, not wired into any route yet)
-- Rate limiting
+- `GET /me/saved-spots` / `POST /me/saved-spots/{id}` / `DELETE /me/saved-spots/{id}` — save/unsave
 
 ---
 
@@ -96,10 +134,9 @@ The only implemented surface right now. Requires a valid Supabase JWT with `app_
 | | |
 |---|---|
 | Framework | FastAPI + uvicorn |
-| Database | Supabase Postgres + PostGIS (async via asyncpg + SQLAlchemy) |
-| Auth | Supabase Auth — Apple + Google sign-in. JWT validated here with HS256. |
-| Cache | Redis (Upstash) — Google Places responses, 1-hr TTL |
-| HTTP client | httpx (async) — Google Places API calls |
+| Database | Supabase Postgres + PostGIS, accessed via **supabase-py v2** (HTTP/REST) |
+| Auth | Supabase Auth — Apple + Google sign-in. JWT validated server-side with HS256. |
+| Google Places | `requests` (sync) — Google Places API (New) |
 | Deployment | Railway (Dockerfile) |
 
 ---
@@ -109,27 +146,35 @@ The only implemented surface right now. Requires a valid Supabase JWT with `app_
 ```
 spotsvc/
 ├── app/
-│   ├── main.py              # App factory, CORS, lifespan
+│   ├── main.py              # App factory, CORS, lifespan, router registration
 │   ├── config.py            # Pydantic Settings (reads from env)
-│   ├── dependencies.py      # get_db, get_current_user, get_admin_user
+│   ├── dependencies.py      # get_current_user, get_admin_user, no_auth
+│   │
+│   ├── spots/
+│   │   ├── router.py        # GET /spots, GET /spots/{id}
+│   │   ├── service.py       # list_spots, get_spot, compute_is_open_now
+│   │   └── schemas.py       # SpotPin, SpotDetail, SpotsResponse
 │   │
 │   ├── admin/
 │   │   ├── router.py        # /admin/* endpoints
-│   │   ├── service.py       # Business logic (Google fetch + DB write)
+│   │   ├── service.py       # Google fetch + DB write logic
 │   │   └── schemas.py       # Pydantic request/response models
 │   │
+│   ├── suggestions/
+│   │   ├── router.py        # POST /suggestions, /admin/suggestions/*
+│   │   ├── service.py       # Submit + approve/reject logic
+│   │   └── schemas.py       # Pydantic models
+│   │
 │   ├── google_places/
-│   │   ├── client.py        # Async httpx wrapper for Places New API
+│   │   ├── client.py        # Sync requests wrapper for Places New API
 │   │   └── schemas.py       # PlaceSuggestion, PlaceDetails models
 │   │
 │   ├── db/
-│   │   ├── database.py      # Async engine (PgBouncer-compatible)
-│   │   ├── models.py        # SQLAlchemy ORM — Spot model
-│   │   └── schema.sql       # Run once in Supabase SQL editor
+│   │   ├── database.py      # Supabase client singleton
+│   │   └── models.py        # SpotCategory + AccessType enums
 │   │
 │   └── core/
-│       ├── security.py      # JWT decode + admin role check
-│       └── redis.py         # Async Redis client
+│       └── security.py      # JWT decode + admin role check
 │
 ├── Dockerfile
 ├── railway.toml
@@ -141,7 +186,7 @@ spotsvc/
 
 ## Local setup
 
-**Prerequisites:** Python 3.12, a Supabase project with PostGIS enabled, a Google Places API key (New), and a Redis instance (Upstash works).
+**Prerequisites:** Python 3.12, a Supabase project with PostGIS enabled, and a Google Places API key (New).
 
 ```bash
 git clone <repo>
@@ -151,13 +196,14 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Fill in SUPABASE_*, DATABASE_URL, GOOGLE_PLACES_API_KEY, REDIS_URL
+# Fill in SUPABASE_URL, SUPABASE_JWT_SECRET, SUPABASE_SERVICE_ROLE_KEY,
+# GOOGLE_PLACES_API_KEY, ADMIN_PWD
 
 uvicorn app.main:app --reload
 # Docs at http://localhost:8000/docs
 ```
 
-**Database setup:** Run `app/db/schema.sql` in the Supabase SQL editor. It creates the `spots` table, PostGIS indexes, RLS policies, and the `updated_at` trigger.
+**Database setup:** Run the schema SQL from `CLAUDE.md` in the Supabase SQL Editor. It creates the `spots`, `profiles`, and `saved_spots` tables, PostGIS indexes, and RLS policies.
 
 **Setting an admin user:**
 ```sql
@@ -180,7 +226,8 @@ WHERE id = 'user-uuid-here';
 
 ## Notable implementation details
 
-- **PgBouncer compatibility** — `statement_cache_size=0` is set in asyncpg connect args. Supabase uses PgBouncer in transaction mode which doesn't support prepared statements.
-- **Geography vs Geometry** — `location` is stored as `GEOGRAPHY(POINT, 4326)` so PostGIS distance calculations (`ST_DWithin`, `ST_Distance`) use metres by default, not degrees.
-- **Google Places coordinate ownership** — lat/lng come from Google at insert time and are stored in our DB. This is the one exception to "don't duplicate Google data" — we need it for PostGIS queries that can't call Google on every request.
+- **Supabase client (no direct Postgres)** — All DB access goes through supabase-py v2 over HTTP/REST using the service role key, which bypasses RLS. This avoids Railway ↔ Supabase network issues with direct TCP connections.
+- **Sync Google Places client** — `requests.Session` is used synchronously from async FastAPI handlers. Acceptable for the low-traffic admin surface.
+- **PostGIS trigger** — The `location` geography column is set automatically by a `BEFORE INSERT` trigger from `latitude` and `longitude` float columns. Always insert lat/lng; never set `location` directly.
+- **is_open_now** — Computed server-side from `regular_hours` (Google's Sunday=0 period format) and the spot's `timezone` field using `pytz`.
 - **Docs in non-production only** — `/docs` and `/redoc` are disabled when `APP_ENV=production`.
