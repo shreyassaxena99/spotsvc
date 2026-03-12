@@ -11,12 +11,22 @@ from app.admin.schemas import (
     GooglePlacePreviewResponse,
     SpotListResponse,
     SpotResponse,
+    ValidateRequest,
+    ValidateResponse,
 )
 from app.admin.service import create_spot, list_spots
+from app.config import settings
 from app.dependencies import no_auth as get_admin_user
 from app.google_places.client import google_places_client
 
 router = APIRouter()
+
+
+@router.post("/validate", response_model=ValidateResponse)
+async def validate_password(payload: ValidateRequest):
+    """Check provided password against ADMIN_PWD environment variable."""
+    valid = payload.password.get_secret_value() == settings.admin_pwd
+    return ValidateResponse(valid=valid)
 
 
 @router.get("/google-autocomplete", response_model=AutocompleteResponse)

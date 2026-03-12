@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from app.db.models import AccessType, SpotCategory
 from app.google_places.schemas import PlaceDetails, PlaceSuggestion
@@ -13,6 +13,14 @@ from app.google_places.schemas import PlaceDetails, PlaceSuggestion
 # ---------------------------------------------------------------------------
 # Requests
 # ---------------------------------------------------------------------------
+
+class ValidateRequest(BaseModel):
+    password: SecretStr
+
+
+class ValidateResponse(BaseModel):
+    valid: bool
+
 
 class CreateSpotRequest(BaseModel):
     google_place_id: str = Field(..., description="Google Place ID obtained from autocomplete")

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # App
     app_env: str = "development"
+    admin_pwd: str
 
 
 settings = Settings()
