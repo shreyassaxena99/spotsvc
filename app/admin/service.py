@@ -76,9 +76,13 @@ async def create_spot(
     admin_user_id: Optional[uuid.UUID],
 ) -> SpotResponse:
     # 1. Guard against duplicate place IDs
-    existing = await db.scalar(
-        select(Spot).where(Spot.google_place_id == payload.google_place_id)
-    )
+    try:
+        existing = await db.scalar(
+            select(Spot).where(Spot.google_place_id == payload.google_place_id)
+        )
+    except Exception as exc:
+        logger.error("DB connection failed during duplicate check: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"DB connection error: {exc}")
     if existing:
         raise HTTPException(
             status_code=409,
