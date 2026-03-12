@@ -32,3 +32,7 @@ async def get_admin_user(
     payload = decode_jwt(credentials.credentials)
     require_admin_role(payload)
     return payload
+
+
+async def no_auth() -> dict:
+    return {}

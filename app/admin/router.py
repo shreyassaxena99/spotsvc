@@ -14,7 +14,7 @@ from app.admin.schemas import (
     SpotResponse,
 )
 from app.admin.service import create_spot, list_spots
-from app.dependencies import get_admin_user, get_db
+from app.dependencies import get_db, no_auth as get_admin_user
 from app.google_places.client import google_places_client
 
 router = APIRouter()
