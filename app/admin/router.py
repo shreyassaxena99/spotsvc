@@ -68,4 +68,5 @@ async def add_spot(
     3. Admin fills in the manual fields (category, access_type, etc.) and POSTs here.
     4. Service fetches all place data from Google and stores the spot in the DB.
     """
-    return await create_spot(db, payload, uuid.UUID(admin["user_id"]))
+    created_by = uuid.UUID(admin["user_id"]) if admin.get("user_id") else None
+    return await create_spot(db, payload, created_by)

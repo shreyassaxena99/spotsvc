@@ -73,7 +73,7 @@ def _build_spot_response(spot: Spot, latitude: float, longitude: float) -> SpotR
 async def create_spot(
     db: AsyncSession,
     payload: CreateSpotRequest,
-    admin_user_id: uuid.UUID,
+    admin_user_id: Optional[uuid.UUID],
 ) -> SpotResponse:
     # 1. Guard against duplicate place IDs
     existing = await db.scalar(
