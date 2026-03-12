@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.admin.router import router as admin_router
+from app.spots.router import router as spots_router
 from app.suggestions.router import router as suggestions_router
 from app.config import settings
 from app.db.database import supabase
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
+app.include_router(spots_router, prefix="/spots", tags=["spots"])
 app.include_router(suggestions_router)
 
 
