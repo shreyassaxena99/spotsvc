@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_jwt_secret: str
     supabase_service_role_key: str
-    supabase_db_url: str  # postgresql+asyncpg://... port 6543 for PgBouncer
 
     # Google Places API (New)
     google_places_api_key: str

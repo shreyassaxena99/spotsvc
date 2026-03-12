@@ -4,7 +4,6 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.schemas import (
     AutocompleteResponse,
@@ -14,7 +13,7 @@ from app.admin.schemas import (
     SpotResponse,
 )
 from app.admin.service import create_spot, list_spots
-from app.dependencies import get_db, no_auth as get_admin_user
+from app.dependencies import no_auth as get_admin_user
 from app.google_places.client import google_places_client
 
 router = APIRouter()
@@ -45,18 +44,16 @@ async def list_admin_spots(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, description="Filter by spot name"),
-    db: AsyncSession = Depends(get_db),
     admin: dict = Depends(get_admin_user),
 ):
     """List all spots (active and inactive). Paginated, with optional name search."""
-    spots, total = await list_spots(db, page, page_size, search)
+    spots, total = list_spots(page, page_size, search)
     return SpotListResponse(spots=spots, total=total, page=page, page_size=page_size)
 
 
 @router.post("/spots", response_model=SpotResponse, status_code=201)
 async def add_spot(
     payload: CreateSpotRequest,
-    db: AsyncSession = Depends(get_db),
     admin: dict = Depends(get_admin_user),
 ):
     """
@@ -69,4 +66,4 @@ async def add_spot(
     4. Service fetches all place data from Google and stores the spot in the DB.
     """
     created_by = uuid.UUID(admin["user_id"]) if admin.get("user_id") else None
-    return await create_spot(db, payload, created_by)
+    return create_spot(payload, created_by)

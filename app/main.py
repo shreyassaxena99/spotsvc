@@ -5,11 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
 from app.admin.router import router as admin_router
 from app.config import settings
-from app.db.database import AsyncSessionLocal, engine
+from app.db.database import supabase
 from app.google_places.client import google_places_client
 
 logger = logging.getLogger(__name__)
@@ -18,8 +17,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    # Graceful shutdown — close persistent connections
-    await engine.dispose()
     google_places_client.close()
 
 
@@ -34,7 +31,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: restrict to admin panel origin in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,8 +43,7 @@ app.include_router(admin_router, prefix="/admin", tags=["admin"])
 @app.get("/health", tags=["meta"])
 async def health_check():
     try:
-        async with AsyncSessionLocal() as session:
-            await session.execute(text("SELECT 1"))
+        supabase.table("spots").select("id").limit(1).execute()
         db_status = "ok"
     except Exception as exc:
         logger.error("Health check DB ping failed: %s", exc, exc_info=True)
