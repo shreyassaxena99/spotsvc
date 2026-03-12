@@ -38,5 +38,13 @@ async def update_suggestion(
     suggestion_id: uuid.UUID,
     payload: UpdateSuggestionStatusRequest,
 ):
-    """Approve or reject a spot suggestion."""
-    return update_suggestion_status(suggestion_id, payload.status, payload.admin_notes)
+    """Approve or reject a spot suggestion. Approving auto-creates the spot."""
+    return update_suggestion_status(
+        suggestion_id,
+        payload.status,
+        payload.admin_notes,
+        payload.category,
+        payload.access_type,
+        payload.noise_level,
+        payload.description,
+    )

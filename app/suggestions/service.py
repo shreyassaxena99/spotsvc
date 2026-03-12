@@ -7,7 +7,10 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.admin.schemas import CreateSpotRequest
+from app.admin.service import create_spot
 from app.db.database import supabase
+from app.db.models import AccessType, SpotCategory
 from app.suggestions.schemas import SubmitSuggestionRequest, SuggestionResponse
 
 logger = logging.getLogger(__name__)
@@ -76,7 +79,35 @@ def update_suggestion_status(
     suggestion_id: uuid.UUID,
     status: str,
     admin_notes: Optional[str],
+    category: Optional[SpotCategory] = None,
+    access_type: Optional[AccessType] = None,
+    noise_level: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> SuggestionResponse:
+    # Fetch the suggestion first
+    fetch = (
+        supabase.table("spot_suggestions")
+        .select("*")
+        .eq("id", str(suggestion_id))
+        .execute()
+    )
+    if not fetch.data:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    suggestion = fetch.data[0]
+
+    # On approval, create the spot from the suggestion's google_place_id
+    if status == "approved":
+        spot_payload = CreateSpotRequest(
+            google_place_id=suggestion["google_place_id"],
+            category=category,
+            access_type=access_type,
+            noise_level=noise_level,
+            description=description,
+            admin_notes=admin_notes,
+        )
+        create_spot(spot_payload, admin_user_id=None)
+
     update_data: dict = {
         "status": status,
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -94,8 +125,5 @@ def update_suggestion_status(
     except Exception as exc:
         logger.error("DB update failed for suggestion %s: %s", suggestion_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
-
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Suggestion not found")
 
     return _build_suggestion_response(result.data[0])

@@ -4,7 +4,9 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+from app.db.models import AccessType, SpotCategory
 
 
 class SubmitSuggestionRequest(BaseModel):
@@ -33,6 +35,21 @@ class SuggestionResponse(BaseModel):
 class UpdateSuggestionStatusRequest(BaseModel):
     status: Literal["approved", "rejected"]
     admin_notes: Optional[str] = None
+    # Required when status == "approved"
+    category: Optional[SpotCategory] = None
+    access_type: Optional[AccessType] = None
+    # Optional curated fields
+    noise_level: Optional[Literal["quiet", "moderate", "lively"]] = None
+    description: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_curated_fields_on_approval(self) -> UpdateSuggestionStatusRequest:
+        if self.status == "approved":
+            if self.category is None:
+                raise ValueError("category is required when approving a suggestion")
+            if self.access_type is None:
+                raise ValueError("access_type is required when approving a suggestion")
+        return self
 
 
 class SuggestionListResponse(BaseModel):
