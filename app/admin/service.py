@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from app.admin.schemas import CreateSpotRequest, SpotResponse
+from app.admin.schemas import CreateSpotRequest, SpotResponse, UpdateSpotRequest
 from app.db.database import supabase
 from app.google_places.client import google_places_client
 from app.google_places.schemas import PlaceDetails
@@ -153,6 +153,41 @@ def create_spot(
         raise HTTPException(status_code=500, detail="Insert returned no data")
 
     return _build_spot_response(result.data[0])
+
+
+def update_spot(spot_id: uuid.UUID, payload: UpdateSpotRequest) -> SpotResponse:
+    result = supabase.table("spots").select("id").eq("id", str(spot_id)).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Spot not found")
+
+    updates: dict = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields provided to update")
+
+    # Serialise enums to their string values
+    for key in ("category", "access_type"):
+        if key in updates:
+            updates[key] = updates[key].value
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = (
+        supabase.table("spots")
+        .update(updates)
+        .eq("id", str(spot_id))
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Update returned no data")
+
+    return _build_spot_response(result.data[0])
+
+
+def delete_spot(spot_id: uuid.UUID) -> None:
+    result = supabase.table("spots").select("id").eq("id", str(spot_id)).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Spot not found")
+    supabase.table("spots").update({"is_active": False}).eq("id", str(spot_id)).execute()
 
 
 def list_spots(

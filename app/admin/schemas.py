@@ -33,6 +33,17 @@ class CreateSpotRequest(BaseModel):
     admin_notes: Optional[str] = Field(None, description="Internal team notes, not shown to users")
 
 
+class UpdateSpotRequest(BaseModel):
+    category: Optional[SpotCategory] = None
+    access_type: Optional[AccessType] = None
+    wifi_available: Optional[bool] = None
+    power_outlets: Optional[bool] = None
+    noise_level: Optional[Literal["quiet", "moderate", "lively"]] = None
+    description: Optional[str] = None
+    admin_notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 # ---------------------------------------------------------------------------
 # Responses
 # ---------------------------------------------------------------------------
