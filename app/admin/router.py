@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.admin.schemas import (
     AutocompleteResponse,
@@ -90,7 +90,7 @@ async def edit_spot(
     return update_spot(spot_id, payload)
 
 
-@router.delete("/spots/{spot_id}", status_code=204, tags=["admin"])
+@router.delete("/spots/{spot_id}", status_code=204, response_class=Response, tags=["admin"])
 async def remove_spot(
     spot_id: uuid.UUID,
     admin: dict = Depends(get_admin_user),
