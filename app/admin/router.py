@@ -90,10 +90,11 @@ async def edit_spot(
     return update_spot(spot_id, payload)
 
 
-@router.delete("/spots/{spot_id}", status_code=204, response_class=Response, tags=["admin"])
+@router.delete("/spots/{spot_id}", tags=["admin"])
 async def remove_spot(
     spot_id: uuid.UUID,
     admin: dict = Depends(get_admin_user),
-) -> None:
+) -> Response:
     """Soft-delete a spot (sets is_active = false)."""
     delete_spot(spot_id)
+    return Response(status_code=204)
