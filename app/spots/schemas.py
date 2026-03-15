@@ -7,6 +7,7 @@ from typing import Any, Optional
 from pydantic import BaseModel
 
 from app.db.models import AccessType, SpotCategory
+from app.db.noise import NoiseMatrixOutput
 
 
 class SpotPin(BaseModel):
@@ -19,7 +20,7 @@ class SpotPin(BaseModel):
     access_type: AccessType
     wifi_available: bool
     power_outlets: bool
-    noise_level: Optional[str]
+    noise_matrix: Optional[NoiseMatrixOutput]
     rating: Optional[float]
     is_open_now: Optional[bool]
     cover_photo: Optional[str]
@@ -35,7 +36,7 @@ class SpotDetail(BaseModel):
     access_type: AccessType
     wifi_available: bool
     power_outlets: bool
-    noise_level: Optional[str]
+    noise_matrix: Optional[NoiseMatrixOutput]
     rating: Optional[float]
     is_open_now: Optional[bool]
     cover_photo: Optional[str]

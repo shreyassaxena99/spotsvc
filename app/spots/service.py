@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.db.database import supabase
 from app.db.models import SpotCategory
+from app.db.noise import noise_matrix_from_db
 from app.spots.schemas import SpotDetail, SpotPin
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ def _build_spot_pin(row: dict) -> SpotPin:
         access_type=row["access_type"],
         wifi_available=row.get("wifi_available", True),
         power_outlets=row.get("power_outlets", True),
-        noise_level=row.get("noise_level"),
+        noise_matrix=noise_matrix_from_db(row.get("noise_matrix")),
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
         cover_photo=_extract_cover_photo(photos),
@@ -88,7 +89,7 @@ def _build_spot_detail(row: dict) -> SpotDetail:
         access_type=row["access_type"],
         wifi_available=row.get("wifi_available", True),
         power_outlets=row.get("power_outlets", True),
-        noise_level=row.get("noise_level"),
+        noise_matrix=noise_matrix_from_db(row.get("noise_matrix")),
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
         cover_photo=_extract_cover_photo(photos),
