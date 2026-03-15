@@ -11,6 +11,7 @@ from app.admin.schemas import CreateSpotRequest
 from app.admin.service import create_spot
 from app.db.database import supabase
 from app.db.models import AccessType, SpotCategory
+from app.db.noise import NoiseMatrixInput
 from app.suggestions.schemas import SubmitSuggestionRequest, SuggestionResponse
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def update_suggestion_status(
     admin_notes: Optional[str],
     category: Optional[SpotCategory] = None,
     access_type: Optional[AccessType] = None,
-    noise_level: Optional[str] = None,
+    noise_matrix: Optional[NoiseMatrixInput] = None,
     description: Optional[str] = None,
 ) -> SuggestionResponse:
     # Fetch the suggestion first
@@ -102,7 +103,7 @@ def update_suggestion_status(
             google_place_id=suggestion["google_place_id"],
             category=category,
             access_type=access_type,
-            noise_level=noise_level,
+            noise_matrix=noise_matrix,
             description=description,
             admin_notes=admin_notes,
         )

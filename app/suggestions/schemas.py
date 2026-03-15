@@ -7,6 +7,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, model_validator
 
 from app.db.models import AccessType, SpotCategory
+from app.db.noise import NoiseMatrixInput
 
 
 class SubmitSuggestionRequest(BaseModel):
@@ -39,7 +40,7 @@ class UpdateSuggestionStatusRequest(BaseModel):
     category: Optional[SpotCategory] = None
     access_type: Optional[AccessType] = None
     # Optional curated fields
-    noise_level: Optional[Literal["quiet", "moderate", "lively"]] = None
+    noise_matrix: Optional[NoiseMatrixInput] = None
     description: Optional[str] = None
 
     @model_validator(mode="after")

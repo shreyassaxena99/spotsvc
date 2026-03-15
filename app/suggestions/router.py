@@ -45,6 +45,6 @@ async def update_suggestion(
         payload.admin_notes,
         payload.category,
         payload.access_type,
-        payload.noise_level,
+        payload.noise_matrix,
         payload.description,
     )
