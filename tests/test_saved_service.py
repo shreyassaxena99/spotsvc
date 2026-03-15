@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.saved.schemas import CollectionListResponse, CollectionResponse, SavedSpotResponse, SavedSpotsResponse
+from app.saved.schemas import CollectionListResponse, CollectionResponse, PublicCollectionResponse, SavedSpotResponse, SavedSpotsResponse
 
 
 # ---------------------------------------------------------------------------
@@ -386,3 +386,152 @@ class TestDeleteCollection:
         from app.saved.service import delete_collection
         # Should not raise
         delete_collection(USER_ID, COLL_ID)
+
+
+# ---------------------------------------------------------------------------
+# add_spot_to_collection
+# ---------------------------------------------------------------------------
+
+class TestAddSpotToCollection:
+    @patch("app.saved.service.supabase")
+    def test_collection_not_found_raises_404(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import add_spot_to_collection
+        with pytest.raises(HTTPException) as exc:
+            add_spot_to_collection(USER_ID, COLL_ID, SPOT_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_wrong_user_collection_raises_403(self, mock_sb):
+        other_coll = {**COLL_ROW, "user_id": str(uuid.uuid4())}
+        mock_sb.table.return_value = _chain(data=[other_coll])
+        from app.saved.service import add_spot_to_collection
+        with pytest.raises(HTTPException) as exc:
+            add_spot_to_collection(USER_ID, COLL_ID, SPOT_ID)
+        assert exc.value.status_code == 403
+
+    @patch("app.saved.service.supabase")
+    def test_spot_not_found_raises_404(self, mock_sb):
+        def dispatch(name):
+            if name == "collections":
+                return _chain(data=[COLL_ROW])
+            if name == "spots":
+                return _chain(data=[])  # spot not found
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import add_spot_to_collection
+        with pytest.raises(HTTPException) as exc:
+            add_spot_to_collection(USER_ID, COLL_ID, SPOT_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_returns_saved_spot_response(self, mock_sb):
+        def dispatch(name):
+            if name == "collections":
+                return _chain(data=[COLL_ROW])
+            if name == "spots":
+                return _chain(data=[SPOT_ROW])
+            if name == "collection_spots":
+                return _chain(data=[])
+            if name == "saved_spots":
+                return _chain(data=[SAVED_ROW])
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import add_spot_to_collection
+        result = add_spot_to_collection(USER_ID, COLL_ID, SPOT_ID)
+        assert isinstance(result, SavedSpotResponse)
+
+
+# ---------------------------------------------------------------------------
+# remove_spot_from_collection
+# ---------------------------------------------------------------------------
+
+class TestRemoveSpotFromCollection:
+    @patch("app.saved.service.supabase")
+    def test_collection_not_found_raises_404(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import remove_spot_from_collection
+        with pytest.raises(HTTPException) as exc:
+            remove_spot_from_collection(USER_ID, COLL_ID, SPOT_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_wrong_user_raises_403(self, mock_sb):
+        other_coll = {**COLL_ROW, "user_id": str(uuid.uuid4())}
+        mock_sb.table.return_value = _chain(data=[other_coll])
+        from app.saved.service import remove_spot_from_collection
+        with pytest.raises(HTTPException) as exc:
+            remove_spot_from_collection(USER_ID, COLL_ID, SPOT_ID)
+        assert exc.value.status_code == 403
+
+    @patch("app.saved.service.supabase")
+    def test_remove_idempotent_no_raise(self, mock_sb):
+        # collection found, delete is a no-op — should return 204 silently
+        mock_sb.table.return_value = _chain(data=[COLL_ROW])
+        from app.saved.service import remove_spot_from_collection
+        remove_spot_from_collection(USER_ID, COLL_ID, SPOT_ID)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# get_public_collection
+# ---------------------------------------------------------------------------
+
+class TestGetPublicCollection:
+    @patch("app.saved.service.supabase")
+    def test_not_found_raises_404(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import get_public_collection
+        with pytest.raises(HTTPException) as exc:
+            get_public_collection(COLL_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_non_shareable_raises_404(self, mock_sb):
+        non_shareable = {**COLL_ROW, "is_shareable": False}
+        mock_sb.table.return_value = _chain(data=[non_shareable])
+        from app.saved.service import get_public_collection
+        with pytest.raises(HTTPException) as exc:
+            get_public_collection(COLL_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_empty_collection_returns_empty_spots(self, mock_sb):
+        shareable = {**COLL_ROW, "is_shareable": True}
+        def dispatch(name):
+            if name == "collections":
+                return _chain(data=[shareable])
+            if name == "collection_spots":
+                return _chain(data=[])
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import get_public_collection
+        result = get_public_collection(COLL_ID)
+        assert isinstance(result, PublicCollectionResponse)
+        assert result.spots == []
+        assert result.spot_count == 0
+
+    @patch("app.saved.service.supabase")
+    def test_returns_spots_in_added_at_order(self, mock_sb):
+        shareable = {**COLL_ROW, "is_shareable": True}
+        spot_id_1 = str(uuid.uuid4())
+        spot_id_2 = str(SPOT_ID)
+        # collection_spots returns in added_at ASC order: spot_id_1 first
+        cs_data = [{"spot_id": spot_id_1}, {"spot_id": spot_id_2}]
+        spot_1 = {**SPOT_ROW, "id": spot_id_1}
+        spot_2 = {**SPOT_ROW, "id": spot_id_2}
+        # spots .in_() returns in arbitrary order (spot_2 first)
+        def dispatch(name):
+            if name == "collections":
+                return _chain(data=[shareable])
+            if name == "collection_spots":
+                return _chain(data=cs_data)
+            if name == "spots":
+                return _chain(data=[spot_2, spot_1])  # deliberately reversed
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import get_public_collection
+        result = get_public_collection(COLL_ID)
+        assert len(result.spots) == 2
+        # Must be re-sorted to added_at ASC: spot_id_1 first
+        assert str(result.spots[0].id) == spot_id_1
+        assert str(result.spots[1].id) == spot_id_2

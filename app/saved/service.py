@@ -395,6 +395,140 @@ def delete_collection(user_id: uuid.UUID, collection_id: uuid.UUID) -> None:
     supabase.table("collections").delete().eq("id", str(collection_id)).execute()
 
 
+def add_spot_to_collection(
+    user_id: uuid.UUID,
+    collection_id: uuid.UUID,
+    spot_id: uuid.UUID,
+) -> SavedSpotResponse:
+    # Step 1: Verify collection belongs to user
+    coll_result = (
+        supabase.table("collections").select("id,user_id").eq("id", str(collection_id)).execute()
+    )
+    if not coll_result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if coll_result.data[0]["user_id"] != str(user_id):
+        raise HTTPException(status_code=403, detail="Not your collection")
+
+    # Step 2: Verify spot exists and is active
+    spot_result = (
+        supabase.table("spots")
+        .select("*")
+        .eq("id", str(spot_id))
+        .eq("is_active", True)
+        .execute()
+    )
+    if not spot_result.data:
+        raise HTTPException(status_code=404, detail="Spot not found")
+    spot_row = spot_result.data[0]
+
+    # Step 3: Upsert into collection_spots
+    supabase.table("collection_spots").upsert(
+        {"collection_id": str(collection_id), "spot_id": str(spot_id)},
+        on_conflict="collection_id,spot_id",
+        ignore_duplicates=True,
+    ).execute()
+
+    # Step 4: Upsert into saved_spots (implicit save — ignore_duplicates preserves created_at)
+    supabase.table("saved_spots").upsert(
+        {"user_id": str(user_id), "spot_id": str(spot_id)},
+        on_conflict="user_id,spot_id",
+        ignore_duplicates=True,
+    ).execute()
+
+    # Step 5: Fetch saved_at (separate query since ignore_duplicates may return empty data)
+    ss_result = (
+        supabase.table("saved_spots")
+        .select("created_at")
+        .eq("user_id", str(user_id))
+        .eq("spot_id", str(spot_id))
+        .execute()
+    )
+    saved_at = ss_result.data[0]["created_at"]
+
+    # Step 6: Fetch all user collection IDs and spot's full collection membership
+    user_colls = (
+        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+    )
+    user_collection_ids = [row["id"] for row in user_colls.data]
+
+    response_collection_ids: list[uuid.UUID] = []
+    if user_collection_ids:
+        cs_result = (
+            supabase.table("collection_spots")
+            .select("collection_id")
+            .in_("collection_id", user_collection_ids)
+            .eq("spot_id", str(spot_id))
+            .execute()
+        )
+        response_collection_ids = [uuid.UUID(row["collection_id"]) for row in cs_result.data]
+
+    return SavedSpotResponse(
+        spot=_build_spot_pin(spot_row),
+        saved_at=saved_at,
+        collection_ids=response_collection_ids,
+    )
+
+
+def remove_spot_from_collection(
+    user_id: uuid.UUID,
+    collection_id: uuid.UUID,
+    spot_id: uuid.UUID,
+) -> None:
+    # Step 1: Verify collection belongs to user
+    coll_result = (
+        supabase.table("collections").select("id,user_id").eq("id", str(collection_id)).execute()
+    )
+    if not coll_result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if coll_result.data[0]["user_id"] != str(user_id):
+        raise HTTPException(status_code=403, detail="Not your collection")
+
+    # Step 2: Delete from collection_spots (idempotent — no-op if not in collection)
+    supabase.table("collection_spots").delete().eq(
+        "collection_id", str(collection_id)
+    ).eq("spot_id", str(spot_id)).execute()
+
+
+def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
+    # Step 1: Fetch collection — 404 if not found or not shareable
+    result = (
+        supabase.table("collections")
+        .select("id,name,is_shareable")
+        .eq("id", str(collection_id))
+        .execute()
+    )
+    if not result.data or not result.data[0]["is_shareable"]:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    coll = result.data[0]
+
+    # Step 2: Fetch spots capped at 200, ordered by added_at ASC
+    cs_result = (
+        supabase.table("collection_spots")
+        .select("spot_id")
+        .eq("collection_id", str(collection_id))
+        .order("added_at")
+        .limit(200)
+        .execute()
+    )
+    if not cs_result.data:
+        return PublicCollectionResponse(
+            id=coll["id"], name=coll["name"], spot_count=0, spots=[]
+        )
+    spot_ids = [row["spot_id"] for row in cs_result.data]
+
+    # Step 3: Batch fetch spot rows, re-sort to preserve added_at ASC order
+    spots_result = supabase.table("spots").select("*").in_("id", spot_ids).execute()
+    spot_map = {row["id"]: row for row in spots_result.data}
+    spots = [_build_spot_pin(spot_map[sid]) for sid in spot_ids if sid in spot_map]
+
+    return PublicCollectionResponse(
+        id=coll["id"],
+        name=coll["name"],
+        spot_count=len(spots),
+        spots=spots,
+    )
+
+
 def unsave_spot(user_id: uuid.UUID, spot_id: uuid.UUID) -> None:
     # Step 1: Verify the spot is saved (404 before any destructive write)
     check = (
