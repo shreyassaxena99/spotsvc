@@ -231,6 +231,170 @@ def _list_saved_spots_all(user_id: uuid.UUID) -> SavedSpotsResponse:
     return SavedSpotsResponse(spots=spots)
 
 
+def list_collections(user_id: uuid.UUID) -> CollectionListResponse:
+    result = (
+        supabase.table("collections")
+        .select("*")
+        .eq("user_id", str(user_id))
+        .order("created_at")
+        .execute()
+    )
+    if not result.data:
+        return CollectionListResponse(collections=[])
+    collection_ids = [row["id"] for row in result.data]
+
+    cs_result = (
+        supabase.table("collection_spots")
+        .select("collection_id")
+        .in_("collection_id", collection_ids)
+        .execute()
+    )
+    counts: dict[str, int] = {}
+    for row in cs_result.data:
+        counts[row["collection_id"]] = counts.get(row["collection_id"], 0) + 1
+
+    colls = [
+        CollectionResponse(
+            id=row["id"],
+            name=row["name"],
+            is_shareable=row["is_shareable"],
+            spot_count=counts.get(row["id"], 0),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+        for row in result.data
+    ]
+    return CollectionListResponse(collections=colls)
+
+
+def create_collection(
+    user_id: uuid.UUID,
+    name: str,
+    source_collection_id: Optional[uuid.UUID] = None,
+) -> CollectionResponse:
+    # Step 1: Enforce collection cap
+    count_result = (
+        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+    )
+    if len(count_result.data) >= 50:
+        raise HTTPException(status_code=422, detail="Collection limit reached (50)")
+
+    # Step 2: Insert new collection
+    now = datetime.now(timezone.utc).isoformat()
+    insert_result = supabase.table("collections").insert({
+        "user_id": str(user_id),
+        "name": name,
+        "is_shareable": False,
+        "created_at": now,
+        "updated_at": now,
+    }).execute()
+    new_coll = insert_result.data[0]
+    new_coll_id = new_coll["id"]
+
+    spot_count = 0
+
+    # Step 3: Copy from source collection if provided
+    if source_collection_id is not None:
+        src_result = (
+            supabase.table("collections")
+            .select("*")
+            .eq("id", str(source_collection_id))
+            .execute()
+        )
+        if not src_result.data or not src_result.data[0]["is_shareable"]:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        if src_result.data[0]["user_id"] == str(user_id):
+            raise HTTPException(status_code=400, detail="Cannot copy your own collection")
+
+        src_spots = (
+            supabase.table("collection_spots")
+            .select("spot_id")
+            .eq("collection_id", str(source_collection_id))
+            .execute()
+        )
+        spot_ids = [row["spot_id"] for row in src_spots.data]
+        spot_count = len(spot_ids)
+
+        if spot_ids:
+            try:
+                cs_rows = [{"collection_id": new_coll_id, "spot_id": sid} for sid in spot_ids]
+                supabase.table("collection_spots").upsert(
+                    cs_rows, on_conflict="collection_id,spot_id", ignore_duplicates=True
+                ).execute()
+                ss_rows = [{"user_id": str(user_id), "spot_id": sid} for sid in spot_ids]
+                supabase.table("saved_spots").upsert(
+                    ss_rows, on_conflict="user_id,spot_id", ignore_duplicates=True
+                ).execute()
+            except Exception as exc:
+                logger.error(
+                    "create_collection copy failed after inserting collection: %s",
+                    exc,
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to copy collection spots: {exc}"
+                )
+
+    return CollectionResponse(
+        id=new_coll["id"],
+        name=new_coll["name"],
+        is_shareable=new_coll["is_shareable"],
+        spot_count=spot_count,
+        created_at=new_coll["created_at"],
+        updated_at=new_coll["updated_at"],
+    )
+
+
+def update_collection(
+    user_id: uuid.UUID,
+    collection_id: uuid.UUID,
+    payload: UpdateCollectionRequest,
+) -> CollectionResponse:
+    result = (
+        supabase.table("collections").select("*").eq("id", str(collection_id)).execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if result.data[0]["user_id"] != str(user_id):
+        raise HTTPException(status_code=403, detail="Not your collection")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields provided to update")
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    update_result = (
+        supabase.table("collections").update(updates).eq("id", str(collection_id)).execute()
+    )
+    updated = update_result.data[0]
+
+    # Note: separate read-after-write; no transaction — count is accurate under normal usage
+    cs_result = (
+        supabase.table("collection_spots").select("id").eq("collection_id", str(collection_id)).execute()
+    )
+    spot_count = len(cs_result.data)
+
+    return CollectionResponse(
+        id=updated["id"],
+        name=updated["name"],
+        is_shareable=updated["is_shareable"],
+        spot_count=spot_count,
+        created_at=updated["created_at"],
+        updated_at=updated["updated_at"],
+    )
+
+
+def delete_collection(user_id: uuid.UUID, collection_id: uuid.UUID) -> None:
+    result = (
+        supabase.table("collections").select("id,user_id").eq("id", str(collection_id)).execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if result.data[0]["user_id"] != str(user_id):
+        raise HTTPException(status_code=403, detail="Not your collection")
+    supabase.table("collections").delete().eq("id", str(collection_id)).execute()
+
+
 def unsave_spot(user_id: uuid.UUID, spot_id: uuid.UUID) -> None:
     # Step 1: Verify the spot is saved (404 before any destructive write)
     check = (

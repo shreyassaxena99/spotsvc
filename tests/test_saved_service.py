@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.saved.schemas import SavedSpotResponse, SavedSpotsResponse
+from app.saved.schemas import CollectionListResponse, CollectionResponse, SavedSpotResponse, SavedSpotsResponse
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +224,165 @@ class TestListSavedSpots:
         assert len(result.spots) == 2
         # First spot should be the newer one
         assert str(result.spots[0].spot.id) == str(SPOT_ID)
+
+
+# ---------------------------------------------------------------------------
+# list_collections
+# ---------------------------------------------------------------------------
+
+class TestListCollections:
+    @patch("app.saved.service.supabase")
+    def test_no_collections_returns_empty(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import list_collections
+        result = list_collections(USER_ID)
+        assert isinstance(result, CollectionListResponse)
+        assert result.collections == []
+
+    @patch("app.saved.service.supabase")
+    def test_returns_collections_with_spot_counts(self, mock_sb):
+        cs_row = {"collection_id": str(COLL_ID)}
+        responses = {
+            "collections": _chain(data=[COLL_ROW]),
+            "collection_spots": _chain(data=[cs_row, cs_row]),  # 2 spots
+        }
+        mock_sb.table.side_effect = _tables(**responses)
+        from app.saved.service import list_collections
+        result = list_collections(USER_ID)
+        assert len(result.collections) == 1
+        assert result.collections[0].spot_count == 2
+
+
+# ---------------------------------------------------------------------------
+# create_collection
+# ---------------------------------------------------------------------------
+
+class TestCreateCollection:
+    @patch("app.saved.service.supabase")
+    def test_limit_reached_raises_422(self, mock_sb):
+        # Return 50 existing collections
+        mock_sb.table.return_value = _chain(data=[COLL_ROW] * 50)
+        from app.saved.service import create_collection
+        with pytest.raises(HTTPException) as exc:
+            create_collection(USER_ID, "New List")
+        assert exc.value.status_code == 422
+
+    @patch("app.saved.service.supabase")
+    def test_creates_collection_without_source(self, mock_sb):
+        # First call: count check (returns empty list = 0 collections)
+        # Second call: insert (returns new row)
+        calls = {"n": 0}
+        def dispatch(name):
+            if name == "collections":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return _chain(data=[])  # count = 0
+                return _chain(data=[COLL_ROW])  # insert result
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import create_collection
+        result = create_collection(USER_ID, "My List")
+        assert isinstance(result, CollectionResponse)
+        assert result.spot_count == 0
+
+    @patch("app.saved.service.supabase")
+    def test_copy_non_shareable_raises_404(self, mock_sb):
+        non_shareable = {**COLL_ROW, "is_shareable": False}
+        calls = {"n": 0}
+        def dispatch(name):
+            if name == "collections":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return _chain(data=[])   # count check — 0 existing
+                if calls["n"] == 2:
+                    return _chain(data=[COLL_ROW])  # insert
+                return _chain(data=[non_shareable])  # source collection fetch
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import create_collection
+        with pytest.raises(HTTPException) as exc:
+            create_collection(USER_ID, "Copy", uuid.uuid4())
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_copy_own_collection_raises_400(self, mock_sb):
+        shareable_own = {**COLL_ROW, "is_shareable": True, "user_id": str(USER_ID)}
+        calls = {"n": 0}
+        def dispatch(name):
+            if name == "collections":
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return _chain(data=[])         # count check
+                if calls["n"] == 2:
+                    return _chain(data=[COLL_ROW]) # insert
+                return _chain(data=[shareable_own]) # source collection
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import create_collection
+        with pytest.raises(HTTPException) as exc:
+            create_collection(USER_ID, "Copy", uuid.uuid4())
+        assert exc.value.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# update_collection
+# ---------------------------------------------------------------------------
+
+class TestUpdateCollection:
+    @patch("app.saved.service.supabase")
+    def test_not_found_raises_404(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import update_collection
+        from app.saved.schemas import UpdateCollectionRequest
+        with pytest.raises(HTTPException) as exc:
+            update_collection(USER_ID, COLL_ID, UpdateCollectionRequest(name="New"))
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_wrong_user_raises_403(self, mock_sb):
+        other = {**COLL_ROW, "user_id": str(uuid.uuid4())}
+        mock_sb.table.return_value = _chain(data=[other])
+        from app.saved.service import update_collection
+        from app.saved.schemas import UpdateCollectionRequest
+        with pytest.raises(HTTPException) as exc:
+            update_collection(USER_ID, COLL_ID, UpdateCollectionRequest(name="New"))
+        assert exc.value.status_code == 403
+
+    @patch("app.saved.service.supabase")
+    def test_empty_payload_raises_422(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[COLL_ROW])
+        from app.saved.service import update_collection
+        from app.saved.schemas import UpdateCollectionRequest
+        with pytest.raises(HTTPException) as exc:
+            update_collection(USER_ID, COLL_ID, UpdateCollectionRequest())
+        assert exc.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# delete_collection
+# ---------------------------------------------------------------------------
+
+class TestDeleteCollection:
+    @patch("app.saved.service.supabase")
+    def test_not_found_raises_404(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import delete_collection
+        with pytest.raises(HTTPException) as exc:
+            delete_collection(USER_ID, COLL_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_wrong_user_raises_403(self, mock_sb):
+        other = {**COLL_ROW, "user_id": str(uuid.uuid4())}
+        mock_sb.table.return_value = _chain(data=[other])
+        from app.saved.service import delete_collection
+        with pytest.raises(HTTPException) as exc:
+            delete_collection(USER_ID, COLL_ID)
+        assert exc.value.status_code == 403
+
+    @patch("app.saved.service.supabase")
+    def test_delete_succeeds(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[COLL_ROW])
+        from app.saved.service import delete_collection
+        # Should not raise
+        delete_collection(USER_ID, COLL_ID)
