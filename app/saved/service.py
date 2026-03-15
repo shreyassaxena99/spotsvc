@@ -172,7 +172,7 @@ def _list_saved_spots_filtered(
         spots.append(
             SavedSpotResponse(
                 spot=_build_spot_pin(row),
-                saved_at=saved_at_map.get(sid),
+                saved_at=saved_at_map[sid],
                 collection_ids=cs_all.get(sid, []),
             )
         )
