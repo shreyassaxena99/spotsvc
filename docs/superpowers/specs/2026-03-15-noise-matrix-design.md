@@ -120,8 +120,8 @@ class NoiseMatrixOutput(BaseModel):
 
 Two helpers also live in `app/db/noise.py`:
 
-- `noise_matrix_to_db(matrix: NoiseMatrixInput) -> dict` — converts input to JSONB dict, stamping `updated_at: datetime.now(UTC)` on cells with a non-null level, `null` on N/A cells
-- `noise_matrix_from_db(data: dict | None) -> NoiseMatrixOutput | None` — parses raw JSONB from DB into `NoiseMatrixOutput`
+- `noise_matrix_to_db(matrix: NoiseMatrixInput) -> dict` — converts input to JSONB dict. Cells with a non-null level are written as `{"level": "<value>", "updated_at": "<iso_timestamp>"}`. N/A cells (level is `None`) are written as `{"level": null, "updated_at": null}`. Both keys are always present in every cell — never omit `updated_at`.
+- `noise_matrix_from_db(data: dict | None) -> NoiseMatrixOutput | None` — parses raw JSONB dict from DB into `NoiseMatrixOutput`. If `data` is `None` (SQL NULL), return `None`. If `data` is a dict, parse it defensively — missing period or cell keys should return `NoiseCellOutput(level=None, updated_at=None)` rather than raising a `KeyError`.
 
 ---
 
