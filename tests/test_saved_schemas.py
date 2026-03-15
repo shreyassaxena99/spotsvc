@@ -3,6 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from app.saved.schemas import (
     SaveSpotRequest,
     CreateCollectionRequest,
@@ -51,13 +54,11 @@ class TestSaveSpotRequest:
 
 class TestCreateCollectionRequest:
     def test_name_required(self):
-        import pytest
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CreateCollectionRequest(name="")
 
     def test_name_max_length(self):
-        import pytest
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CreateCollectionRequest(name="x" * 101)
 
     def test_source_collection_id_optional(self):
