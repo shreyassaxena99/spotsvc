@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.admin.schemas import CreateSpotRequest, SpotResponse, UpdateSpotRequest
 from app.db.database import supabase
+from app.db.noise import NoiseMatrixInput, noise_matrix_from_db, noise_matrix_to_db
 from app.google_places.client import google_places_client
 from app.google_places.schemas import PlaceDetails
 
@@ -57,7 +58,7 @@ def _build_spot_response(data: dict) -> SpotResponse:
         access_type=data["access_type"],
         wifi_available=data.get("wifi_available", True),
         power_outlets=data.get("power_outlets", True),
-        noise_level=data.get("noise_level"),
+        noise_matrix=noise_matrix_from_db(data.get("noise_matrix")),
         description=data.get("description"),
         admin_notes=data.get("admin_notes"),
         is_active=data.get("is_active", True),
@@ -132,7 +133,6 @@ def create_spot(
         "access_type": payload.access_type.value,
         "wifi_available": payload.wifi_available,
         "power_outlets": payload.power_outlets,
-        "noise_level": payload.noise_level,
         "description": payload.description,
         "admin_notes": payload.admin_notes,
         "is_active": True,
@@ -141,6 +141,8 @@ def create_spot(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if payload.noise_matrix is not None:
+        spot_data["noise_matrix"] = noise_matrix_to_db(payload.noise_matrix)
     spot_data = {k: v for k, v in spot_data.items() if v is not None}
 
     try:
@@ -160,7 +162,12 @@ def update_spot(spot_id: uuid.UUID, payload: UpdateSpotRequest) -> SpotResponse:
     if not result.data:
         raise HTTPException(status_code=404, detail="Spot not found")
 
-    updates: dict = {k: v for k, v in payload.model_dump().items() if v is not None}
+    updates: dict = payload.model_dump(exclude_unset=True)
+    if "noise_matrix" in updates and updates["noise_matrix"] is not None:
+        updates["noise_matrix"] = noise_matrix_to_db(NoiseMatrixInput.model_validate(updates["noise_matrix"]))
+    elif "noise_matrix" in updates:
+        # explicit null sent by caller — remove key to avoid overwriting with None
+        del updates["noise_matrix"]
     if not updates:
         raise HTTPException(status_code=422, detail="No fields provided to update")
 
