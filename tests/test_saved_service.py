@@ -151,3 +151,76 @@ class TestUnsaveSpot:
         from app.saved.service import unsave_spot
         # Should not raise
         unsave_spot(USER_ID, SPOT_ID)
+
+
+# ---------------------------------------------------------------------------
+# list_saved_spots
+# ---------------------------------------------------------------------------
+
+class TestListSavedSpots:
+    @patch("app.saved.service.supabase")
+    def test_unfiltered_empty_returns_empty_response(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import list_saved_spots
+        result = list_saved_spots(USER_ID)
+        assert isinstance(result, SavedSpotsResponse)
+        assert result.spots == []
+
+    @patch("app.saved.service.supabase")
+    def test_filtered_collection_not_found_raises_404(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[])
+        from app.saved.service import list_saved_spots
+        with pytest.raises(HTTPException) as exc:
+            list_saved_spots(USER_ID, COLL_ID)
+        assert exc.value.status_code == 404
+
+    @patch("app.saved.service.supabase")
+    def test_filtered_other_users_collection_raises_403(self, mock_sb):
+        other_user_coll = {**COLL_ROW, "user_id": str(uuid.uuid4())}
+        mock_sb.table.return_value = _chain(data=[other_user_coll])
+        from app.saved.service import list_saved_spots
+        with pytest.raises(HTTPException) as exc:
+            list_saved_spots(USER_ID, COLL_ID)
+        assert exc.value.status_code == 403
+
+    @patch("app.saved.service.supabase")
+    def test_filtered_empty_collection_returns_empty_response(self, mock_sb):
+        # collections ownership check passes, then collection_spots is empty
+        call_order = []
+        def dispatch(name):
+            call_order.append(name)
+            if name == "collections" and len([x for x in call_order if x == "collections"]) == 1:
+                return _chain(data=[COLL_ROW])  # ownership check
+            if name == "collections":
+                return _chain(data=[COLL_ROW])  # user_collection_ids
+            if name == "collection_spots":
+                return _chain(data=[])  # empty collection
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import list_saved_spots
+        result = list_saved_spots(USER_ID, COLL_ID)
+        assert result.spots == []
+
+    @patch("app.saved.service.supabase")
+    def test_unfiltered_orders_by_saved_at_desc(self, mock_sb):
+        # Two saved spots, first in list should be most recently saved
+        older_saved = {**SAVED_ROW, "spot_id": str(uuid.uuid4()), "created_at": "2026-03-01T10:00:00+00:00"}
+        newer_saved = {**SAVED_ROW, "spot_id": str(SPOT_ID), "created_at": "2026-03-15T10:00:00+00:00"}
+        # saved_spots returns newer first (desc order)
+        ordered_ss = [newer_saved, older_saved]
+        spot_rows = [
+            SPOT_ROW,
+            {**SPOT_ROW, "id": older_saved["spot_id"]},
+        ]
+        responses = {
+            "saved_spots": _chain(data=ordered_ss),
+            "collections": _chain(data=[]),
+            "spots": _chain(data=spot_rows),
+            "collection_spots": _chain(data=[]),
+        }
+        mock_sb.table.side_effect = _tables(**responses)
+        from app.saved.service import list_saved_spots
+        result = list_saved_spots(USER_ID)
+        assert len(result.spots) == 2
+        # First spot should be the newer one
+        assert str(result.spots[0].spot.id) == str(SPOT_ID)

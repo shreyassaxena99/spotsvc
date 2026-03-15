@@ -94,6 +94,143 @@ def save_spot(
     )
 
 
+def list_saved_spots(
+    user_id: uuid.UUID,
+    collection_id: Optional[uuid.UUID] = None,
+) -> SavedSpotsResponse:
+    if collection_id is not None:
+        return _list_saved_spots_filtered(user_id, collection_id)
+    return _list_saved_spots_all(user_id)
+
+
+def _list_saved_spots_filtered(
+    user_id: uuid.UUID,
+    collection_id: uuid.UUID,
+) -> SavedSpotsResponse:
+    # Step 1: Verify collection ownership
+    coll_result = (
+        supabase.table("collections")
+        .select("id,user_id")
+        .eq("id", str(collection_id))
+        .execute()
+    )
+    if not coll_result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if coll_result.data[0]["user_id"] != str(user_id):
+        raise HTTPException(status_code=403, detail="Not your collection")
+
+    # Step 2: Fetch all user's collection IDs (for full collection_ids in response)
+    user_colls = (
+        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+    )
+    user_collection_ids = [row["id"] for row in user_colls.data]
+
+    # Step 3: Fetch spots in this collection, ordered by added_at ASC
+    cs_result = (
+        supabase.table("collection_spots")
+        .select("spot_id")
+        .eq("collection_id", str(collection_id))
+        .order("added_at")
+        .execute()
+    )
+    if not cs_result.data:
+        return SavedSpotsResponse(spots=[])
+    spot_ids = [row["spot_id"] for row in cs_result.data]
+
+    # Step 4: Batch fetch spot rows, re-sort to added_at ASC order
+    spots_result = supabase.table("spots").select("*").in_("id", spot_ids).execute()
+    spot_map = {row["id"]: row for row in spots_result.data}
+
+    # Step 5: Fetch saved_at timestamps
+    ss_result = (
+        supabase.table("saved_spots")
+        .select("spot_id,created_at")
+        .eq("user_id", str(user_id))
+        .in_("spot_id", spot_ids)
+        .execute()
+    )
+    saved_at_map = {row["spot_id"]: row["created_at"] for row in ss_result.data}
+
+    # Step 6: Fetch full collection membership across all user's collections
+    cs_all: dict[str, list[uuid.UUID]] = {}
+    if user_collection_ids:
+        cs_all_result = (
+            supabase.table("collection_spots")
+            .select("collection_id,spot_id")
+            .in_("collection_id", user_collection_ids)
+            .execute()
+        )
+        for row in cs_all_result.data:
+            cs_all.setdefault(row["spot_id"], []).append(uuid.UUID(row["collection_id"]))
+
+    # Step 7: Build response preserving added_at ASC order from step 3
+    spots = []
+    for sid in spot_ids:
+        row = spot_map.get(sid)
+        if row is None:
+            continue
+        spots.append(
+            SavedSpotResponse(
+                spot=_build_spot_pin(row),
+                saved_at=saved_at_map.get(sid),
+                collection_ids=cs_all.get(sid, []),
+            )
+        )
+    return SavedSpotsResponse(spots=spots)
+
+
+def _list_saved_spots_all(user_id: uuid.UUID) -> SavedSpotsResponse:
+    # Step 1: Fetch saved spots ordered by created_at DESC
+    ss_result = (
+        supabase.table("saved_spots")
+        .select("spot_id,created_at")
+        .eq("user_id", str(user_id))
+        .order("created_at", desc=True)
+        .execute()
+    )
+    if not ss_result.data:
+        return SavedSpotsResponse(spots=[])
+    spot_ids = [row["spot_id"] for row in ss_result.data]
+    saved_at_map = {row["spot_id"]: row["created_at"] for row in ss_result.data}
+
+    # Step 2: Fetch all user's collection IDs
+    user_colls = (
+        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+    )
+    user_collection_ids = [row["id"] for row in user_colls.data]
+
+    # Step 3: Batch fetch spot rows, re-sort to created_at DESC order
+    spots_result = supabase.table("spots").select("*").in_("id", spot_ids).execute()
+    spot_map = {row["id"]: row for row in spots_result.data}
+
+    # Step 4: Fetch collection membership for all user's collections
+    cs_all: dict[str, list[uuid.UUID]] = {}
+    if user_collection_ids:
+        cs_all_result = (
+            supabase.table("collection_spots")
+            .select("collection_id,spot_id")
+            .in_("collection_id", user_collection_ids)
+            .execute()
+        )
+        for row in cs_all_result.data:
+            cs_all.setdefault(row["spot_id"], []).append(uuid.UUID(row["collection_id"]))
+
+    # Step 5: Build response preserving created_at DESC order from step 1
+    spots = []
+    for sid in spot_ids:
+        row = spot_map.get(sid)
+        if row is None:
+            continue
+        spots.append(
+            SavedSpotResponse(
+                spot=_build_spot_pin(row),
+                saved_at=saved_at_map[sid],
+                collection_ids=cs_all.get(sid, []),
+            )
+        )
+    return SavedSpotsResponse(spots=spots)
+
+
 def unsave_spot(user_id: uuid.UUID, spot_id: uuid.UUID) -> None:
     # Step 1: Verify the spot is saved (404 before any destructive write)
     check = (
