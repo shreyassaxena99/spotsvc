@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, SecretStr
 
 from app.db.models import AccessType, SpotCategory
+from app.db.noise import NoiseMatrixInput, NoiseMatrixOutput
 from app.google_places.schemas import PlaceDetails, PlaceSuggestion
 
 
@@ -28,7 +29,7 @@ class CreateSpotRequest(BaseModel):
     access_type: AccessType
     wifi_available: bool = True
     power_outlets: bool = True
-    noise_level: Optional[Literal["quiet", "moderate", "lively"]] = None
+    noise_matrix: Optional[NoiseMatrixInput] = None
     description: Optional[str] = Field(None, description="Editorial description shown to users")
     admin_notes: Optional[str] = Field(None, description="Internal team notes, not shown to users")
 
@@ -38,7 +39,7 @@ class UpdateSpotRequest(BaseModel):
     access_type: Optional[AccessType] = None
     wifi_available: Optional[bool] = None
     power_outlets: Optional[bool] = None
-    noise_level: Optional[Literal["quiet", "moderate", "lively"]] = None
+    noise_matrix: Optional[NoiseMatrixInput] = None
     description: Optional[str] = None
     admin_notes: Optional[str] = None
     is_active: Optional[bool] = None
@@ -90,7 +91,7 @@ class SpotResponse(BaseModel):
     access_type: AccessType
     wifi_available: bool
     power_outlets: bool
-    noise_level: Optional[str]
+    noise_matrix: Optional[NoiseMatrixOutput]
     description: Optional[str]
     admin_notes: Optional[str]
     is_active: bool
