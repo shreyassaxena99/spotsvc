@@ -5,8 +5,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-_NULL_CELL = {"level": None, "updated_at": None}
-
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -75,7 +73,7 @@ def noise_matrix_to_db(matrix: NoiseMatrixInput) -> dict:
 
 def _cell_from_db(data: dict | None) -> NoiseCellOutput:
     """Parse one cell dict from DB. Returns null cell on missing/malformed data."""
-    if not data:
+    if not data:  # handles None and empty dict {}
         return NoiseCellOutput(level=None, updated_at=None)
     raw_updated_at = data.get("updated_at")
     parsed_updated_at: Optional[datetime] = None
