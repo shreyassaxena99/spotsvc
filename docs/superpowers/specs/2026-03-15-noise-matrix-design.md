@@ -18,7 +18,9 @@ Each spot currently stores a single static noise level (`quiet`, `moderate`, `li
 |-----------|-----------------|
 | Morning   | 06:00 – 10:59   |
 | Afternoon | 11:00 – 15:59   |
-| Evening   | 16:00 – close   |
+| Evening   | 16:00 – 23:59   |
+
+The window 00:00–05:59 is treated as Evening of the current day (i.e., `evening` is the fallback for any hour not covered by Morning or Afternoon).
 
 ---
 
@@ -47,7 +49,7 @@ SET noise_matrix = jsonb_build_object(
   )
 );
 ```
-Spots where `noise_level IS NULL` produce an all-null matrix (N/A baseline). This is correct.
+Spots where `noise_level IS NULL` produce a **non-null JSONB object** with all six cells set to `{"level": null, "updated_at": null}`. This is intentional — after the old column is dropped, the matrix is always a structured object. A SQL-level NULL `noise_matrix` means the matrix was never set at all (e.g. a spot created before this migration without a matrix). `noise_matrix_from_db` must handle both cases: SQL NULL → return `None`; JSONB object with null-level cells → return a `NoiseMatrixOutput` where each cell has `level: null`. Clients must handle per-cell nulls (hide the label when `level` is null), not rely solely on a top-level null matrix.
 
 **Step 3 — Drop old column:**
 ```sql
@@ -77,7 +79,17 @@ ALTER TABLE spots DROP COLUMN noise_level;
 
 ## Pydantic Models (`app/db/noise.py` — new shared file)
 
+Full file header required per project coding standard:
+
 ```python
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal, Optional
+
+from pydantic import BaseModel
+
+
 # Input — admin writes, level is the only settable field per cell
 class NoiseCellInput(BaseModel):
     level: Optional[Literal["quiet", "moderate", "lively"]] = None  # None = N/A
@@ -93,7 +105,7 @@ class NoiseMatrixInput(BaseModel):
 
 # Output — API responses, includes server-stamped updated_at per cell
 class NoiseCellOutput(BaseModel):
-    level: Optional[str]
+    level: Optional[Literal["quiet", "moderate", "lively"]]  # None = N/A
     updated_at: Optional[datetime]
 
 class NoisePeriodOutput(BaseModel):
@@ -141,9 +153,11 @@ Two helpers also live in `app/db/noise.py`:
 ## Service Layer Changes
 
 ### `app/admin/service.py`
-- `create_spot`: replace `"noise_level": payload.noise_level` with `"noise_matrix": noise_matrix_to_db(payload.noise_matrix)` (omit key if `None`)
-- `update_spot`: same substitution in the updates dict
+- `create_spot`: replace `"noise_level": payload.noise_level` with the noise matrix key. Only add the key when `payload.noise_matrix is not None` — call `noise_matrix_to_db(payload.noise_matrix)` at that point. Do **not** call `noise_matrix_to_db(None)`. The existing `{k: v for k, v in spot_data.items() if v is not None}` filter is not sufficient for this — guard explicitly before adding the key.
+- `update_spot`: replace `noise_level` with `noise_matrix` in the updates dict. Change the filter from `{k: v for k, v in payload.model_dump().items() if v is not None}` to `payload.model_dump(exclude_unset=True)` — this preserves fields the caller did not send and correctly handles the case where the caller omits `noise_matrix` entirely (matrix is preserved, not cleared). Call `noise_matrix_to_db` on the value only if the key is present after the filter.
 - `_build_spot_response`: replace `noise_level=data.get("noise_level")` with `noise_matrix=noise_matrix_from_db(data.get("noise_matrix"))`
+
+**Note:** switching `update_spot` to `exclude_unset=True` affects all curated fields in `UpdateSpotRequest`, not just `noise_matrix`. This is the correct behaviour — it was a latent bug in the original implementation that is being fixed as part of this change.
 
 ### `app/spots/service.py`
 - `_build_spot_pin` / `_build_spot_detail`: replace `noise_level=row.get("noise_level")` with `noise_matrix=noise_matrix_from_db(row.get("noise_matrix"))`
@@ -151,6 +165,8 @@ Two helpers also live in `app/db/noise.py`:
 ### `app/suggestions/service.py`
 - `update_suggestion_status`: replace `noise_level=noise_level` with `noise_matrix=noise_matrix` when constructing `CreateSpotRequest`
 - `suggestions/router.py`: replace `payload.noise_level` with `payload.noise_matrix` in the `update_suggestion_status` call
+
+**Pre-existing gap (out of scope, acknowledged):** The `CreateSpotRequest` constructed on suggestion approval hard-codes `wifi_available` and `power_outlets` to their defaults rather than passing them through from the approval payload. This is a pre-existing limitation and is not addressed by this change.
 
 ---
 
@@ -193,7 +209,7 @@ Two helpers also live in `app/db/noise.py`:
 >
 > Client-side logic to determine which cell to show:
 > - Day type: if today is Saturday or Sunday → `weekend`, otherwise → `weekday`
-> - Time of day: current local time before 11am → `morning`, 11am–4pm → `afternoon`, after 4pm → `evening`
+> - Time of day: current local time 6am–10:59am → `morning`, 11am–3:59pm → `afternoon`, all other hours (4pm–5:59am) → `evening`
 > - If the selected cell's `level` is `null`, hide the noise label entirely
 >
 > Apply this everywhere a noise level is currently shown — spot cards on the map/list and the spot detail page.
