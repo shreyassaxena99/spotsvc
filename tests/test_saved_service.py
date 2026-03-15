@@ -127,6 +127,29 @@ class TestSaveSpot:
         assert str(result.spot.id) == str(SPOT_ID)
         assert result.collection_ids == []
 
+    @patch("app.saved.service.supabase")
+    def test_resave_spot_uses_fallback_for_saved_at(self, mock_sb):
+        # saved_spots upsert returns empty data (conflict case), fallback SELECT returns saved_at
+        ss_upsert = _chain(data=[])   # empty on conflict
+        ss_fallback = _chain(data=[SAVED_ROW])  # fallback fetch
+        ss_call_count = {"n": 0}
+        def dispatch(name):
+            if name == "spots":
+                return _chain(data=[SPOT_ROW])
+            if name == "saved_spots":
+                ss_call_count["n"] += 1
+                if ss_call_count["n"] == 1:
+                    return ss_upsert  # upsert — empty
+                return ss_fallback    # fallback SELECT
+            if name == "collections":
+                return _chain(data=[])
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import save_spot
+        result = save_spot(USER_ID, SPOT_ID, [])
+        assert isinstance(result, SavedSpotResponse)
+        assert result.saved_at is not None
+
 
 # ---------------------------------------------------------------------------
 # unsave_spot
@@ -293,10 +316,8 @@ class TestCreateCollection:
             if name == "collections":
                 calls["n"] += 1
                 if calls["n"] == 1:
-                    return _chain(data=[])   # count check — 0 existing
-                if calls["n"] == 2:
-                    return _chain(data=[COLL_ROW])  # insert
-                return _chain(data=[non_shareable])  # source collection fetch
+                    return _chain(data=[])          # count check — 0 existing
+                return _chain(data=[non_shareable]) # source collection fetch (before insert)
             return _chain()
         mock_sb.table.side_effect = dispatch
         from app.saved.service import create_collection
@@ -312,10 +333,8 @@ class TestCreateCollection:
             if name == "collections":
                 calls["n"] += 1
                 if calls["n"] == 1:
-                    return _chain(data=[])         # count check
-                if calls["n"] == 2:
-                    return _chain(data=[COLL_ROW]) # insert
-                return _chain(data=[shareable_own]) # source collection
+                    return _chain(data=[])           # count check
+                return _chain(data=[shareable_own])  # source collection fetch (before insert)
             return _chain()
         mock_sb.table.side_effect = dispatch
         from app.saved.service import create_collection

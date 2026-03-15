@@ -60,7 +60,18 @@ def save_spot(
         .upsert({"user_id": str(user_id), "spot_id": str(spot_id)}, on_conflict="user_id,spot_id")
         .execute()
     )
-    saved_at = ss_result.data[0]["created_at"]
+    if ss_result.data:
+        saved_at = ss_result.data[0]["created_at"]
+    else:
+        # Fallback: supabase-py may return empty data on conflict — fetch separately
+        fallback = (
+            supabase.table("saved_spots")
+            .select("created_at")
+            .eq("user_id", str(user_id))
+            .eq("spot_id", str(spot_id))
+            .execute()
+        )
+        saved_at = fallback.data[0]["created_at"]
 
     # Step 4: Bulk upsert into collection_spots (single call, not a loop)
     if collection_ids:
@@ -279,21 +290,8 @@ def create_collection(
     if len(count_result.data) >= 50:
         raise HTTPException(status_code=422, detail="Collection limit reached (50)")
 
-    # Step 2: Insert new collection
-    now = datetime.now(timezone.utc).isoformat()
-    insert_result = supabase.table("collections").insert({
-        "user_id": str(user_id),
-        "name": name,
-        "is_shareable": False,
-        "created_at": now,
-        "updated_at": now,
-    }).execute()
-    new_coll = insert_result.data[0]
-    new_coll_id = new_coll["id"]
-
-    spot_count = 0
-
-    # Step 3: Copy from source collection if provided
+    # Step 2: Validate source collection before insert (avoids orphaned collection on failure)
+    source_spot_ids: list[str] = []
     if source_collection_id is not None:
         src_result = (
             supabase.table("collections")
@@ -305,35 +303,48 @@ def create_collection(
             raise HTTPException(status_code=404, detail="Collection not found")
         if src_result.data[0]["user_id"] == str(user_id):
             raise HTTPException(status_code=400, detail="Cannot copy your own collection")
-
         src_spots = (
             supabase.table("collection_spots")
             .select("spot_id")
             .eq("collection_id", str(source_collection_id))
             .execute()
         )
-        spot_ids = [row["spot_id"] for row in src_spots.data]
-        spot_count = len(spot_ids)
+        source_spot_ids = [row["spot_id"] for row in src_spots.data]
 
-        if spot_ids:
-            try:
-                cs_rows = [{"collection_id": new_coll_id, "spot_id": sid} for sid in spot_ids]
-                supabase.table("collection_spots").upsert(
-                    cs_rows, on_conflict="collection_id,spot_id", ignore_duplicates=True
-                ).execute()
-                ss_rows = [{"user_id": str(user_id), "spot_id": sid} for sid in spot_ids]
-                supabase.table("saved_spots").upsert(
-                    ss_rows, on_conflict="user_id,spot_id", ignore_duplicates=True
-                ).execute()
-            except Exception as exc:
-                logger.error(
-                    "create_collection copy failed after inserting collection: %s",
-                    exc,
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=500, detail=f"Failed to copy collection spots: {exc}"
-                )
+    # Step 3: Insert new collection
+    now = datetime.now(timezone.utc).isoformat()
+    insert_result = supabase.table("collections").insert({
+        "user_id": str(user_id),
+        "name": name,
+        "is_shareable": False,
+        "created_at": now,
+        "updated_at": now,
+    }).execute()
+    new_coll = insert_result.data[0]
+    new_coll_id = new_coll["id"]
+
+    spot_count = len(source_spot_ids)
+
+    # Step 4: Copy spots if source provided
+    if source_spot_ids:
+        try:
+            cs_rows = [{"collection_id": new_coll_id, "spot_id": sid} for sid in source_spot_ids]
+            supabase.table("collection_spots").upsert(
+                cs_rows, on_conflict="collection_id,spot_id", ignore_duplicates=True
+            ).execute()
+            ss_rows = [{"user_id": str(user_id), "spot_id": sid} for sid in source_spot_ids]
+            supabase.table("saved_spots").upsert(
+                ss_rows, on_conflict="user_id,spot_id", ignore_duplicates=True
+            ).execute()
+        except Exception as exc:
+            logger.error(
+                "create_collection copy failed after inserting collection: %s",
+                exc,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500, detail="Failed to copy collection spots"
+            )
 
     return CollectionResponse(
         id=new_coll["id"],
