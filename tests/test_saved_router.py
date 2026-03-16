@@ -12,7 +12,7 @@ from app.dependencies import get_current_user
 
 # Bypass auth for router tests — override get_current_user dependency
 FAKE_USER_ID = str(uuid.uuid4())
-FAKE_USER = {"sub": FAKE_USER_ID}
+FAKE_USER = {"user_id": FAKE_USER_ID}
 
 SPOT_ID = str(uuid.uuid4())
 COLL_ID = str(uuid.uuid4())

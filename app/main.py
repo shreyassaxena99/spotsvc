@@ -10,6 +10,7 @@ from app.admin.router import router as admin_router
 from app.saved.router import router as saved_router
 from app.spots.router import router as spots_router
 from app.suggestions.router import router as suggestions_router
+from app.users.router import router as users_router
 from app.config import settings
 from app.db.database import supabase
 from app.google_places.client import google_places_client
@@ -44,6 +45,7 @@ app.include_router(admin_router, prefix="/admin", tags=["admin"])
 app.include_router(spots_router, prefix="/spots", tags=["spots"])
 app.include_router(suggestions_router)
 app.include_router(saved_router)
+app.include_router(users_router)
 
 
 @app.get("/health", tags=["meta"])
