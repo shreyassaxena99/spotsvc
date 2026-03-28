@@ -8,24 +8,30 @@ Built with **FastAPI** (async), **Supabase** (Postgres + PostGIS + Auth), and de
 
 ## Architecture
 
-```
-iOS App (Swift)          Admin Panel (React)
-     │                          │
-     │ Supabase JWT             │ Supabase JWT + Admin Password
-     ▼                          ▼
-┌─────────────────────────────────────┐
-│            spotsvc (FastAPI)         │
-│                                     │
-│  /spots/*       →  spots router     │
-│  /suggestions   →  public           │
-│  /admin/*       →  admin router     │
-└────────────┬──────────────┬─────────┘
-             │              │
-    ┌─────────┴──┐   ┌──────┴────────┐
-    │  Supabase   │   │ Google Places  │
-    │  Postgres   │   │ API (New)      │
-    │  + PostGIS  │   │                │
-    └─────────────┘   └───────────────┘
+```mermaid
+flowchart TD
+    iOS["iOS App (Swift)"]
+    Admin["Admin Panel (React)"]
+
+    subgraph spotsvc["spotsvc (FastAPI on Railway)"]
+        spots["/spots/* — public"]
+        me["/me/* — authenticated"]
+        suggestions["/suggestions — public"]
+        admin["/admin/* — admin only"]
+    end
+
+    Supabase["Supabase\nPostgres + PostGIS + Auth"]
+    Google["Google Places API (New)"]
+
+    iOS -->|"Supabase JWT"| spots
+    iOS -->|"Supabase JWT"| me
+    iOS -->|"no auth"| suggestions
+    Admin -->|"Supabase JWT + Admin Password"| admin
+
+    spots -->|"supabase-py v2 (HTTP/REST)"| Supabase
+    me -->|"supabase-py v2 (HTTP/REST)"| Supabase
+    admin -->|"supabase-py v2 (HTTP/REST)"| Supabase
+    admin -->|"requests (sync)"| Google
 ```
 
 **Key principles:**
@@ -79,6 +85,29 @@ No authentication required.
 |--------|----------|-------------|
 | `POST` | `/suggestions` | Submit a public suggestion for a new spot. No auth required. |
 
+### Authenticated — user (`/me/*`)
+
+Requires a valid Supabase JWT (`Authorization: Bearer <token>`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `PATCH` | `/me` | Update user profile (`display_name`, `email_opt_in`) |
+| `GET` | `/me/saved-spots` | List saved spots. Optional `?collection_id=` filter. |
+| `POST` | `/me/saved-spots` | Save a spot. Optionally add to one or more collections in the same call. |
+| `DELETE` | `/me/saved-spots/{spot_id}` | Unsave a spot. Also removes it from all collections. |
+| `GET` | `/me/collections` | List all of the user's collections with spot counts. |
+| `POST` | `/me/collections` | Create a collection. Pass `source_collection_id` to copy a shareable collection. |
+| `PATCH` | `/me/collections/{id}` | Rename a collection or toggle `is_shareable`. |
+| `DELETE` | `/me/collections/{id}` | Delete a collection. Spots remain saved. |
+| `POST` | `/me/collections/{id}/spots` | Add a spot to a collection. Also saves the spot if not already saved. |
+| `DELETE` | `/me/collections/{id}/spots/{spot_id}` | Remove a spot from a collection. Does not unsave the spot. |
+
+### Public — shareable collections
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/collections/{id}` | View a shareable collection and its spots. No auth required. Returns 404 if not shareable. |
+
 ### Admin — spot management (`/admin/*`)
 
 Requires a valid Supabase JWT with `app_metadata.role = "admin"`, plus the `X-Admin-Password` header.
@@ -89,15 +118,38 @@ Requires a valid Supabase JWT with `app_metadata.role = "admin"`, plus the `X-Ad
 | `GET` | `/admin/google-place/{place_id}` | Fetch full place details for preview before saving |
 | `GET` | `/admin/spots` | List all spots — paginated, searchable by name |
 | `POST` | `/admin/spots` | Create a spot (fetches all data from Google, stores in DB) |
+| `PUT` | `/admin/spots/{id}` | Update curated fields on an existing spot |
+| `DELETE` | `/admin/spots/{id}` | Soft-delete a spot (`is_active = false`) |
 | `GET` | `/admin/suggestions` | List submitted suggestions (paginated, filterable by status) |
 | `PATCH` | `/admin/suggestions/{id}` | Approve or reject a suggestion. Approving auto-creates the spot. |
 | `POST` | `/admin/validate` | Validate the admin password |
 
 **Add-spot flow:**
-1. Admin types a name → `GET /admin/google-autocomplete?q=Workshop+Coffee` returns suggestions with `place_id`s.
-2. Admin selects one → `GET /admin/google-place/{place_id}` returns a preview (name, address, hours, photos).
-3. Admin fills in the curated fields and submits → `POST /admin/spots`.
-4. Service verifies the `place_id` isn't already in the DB, fetches all data from Google, and persists the spot.
+
+```mermaid
+sequenceDiagram
+    participant A as Admin Panel
+    participant S as spotsvc
+    participant G as Google Places API
+    participant DB as Supabase DB
+
+    A->>S: GET /admin/google-autocomplete?q=Workshop+Coffee
+    S->>G: POST /places:autocomplete
+    G-->>S: suggestions with place_ids
+    S-->>A: suggestions[]
+
+    A->>S: GET /admin/google-place/{place_id}
+    S->>G: GET /places/{place_id}
+    G-->>S: full place details
+    S-->>A: preview (name, address, hours, photos)
+
+    A->>S: POST /admin/spots (place_id + curated fields)
+    S->>G: GET /places/{place_id} (full fetch)
+    G-->>S: all place data
+    S->>DB: INSERT spot
+    DB-->>S: created spot
+    S-->>A: SpotResponse
+```
 
 **`POST /admin/spots` request body:**
 ```json
@@ -121,11 +173,9 @@ Requires a valid Supabase JWT with `app_metadata.role = "admin"`, plus the `X-Ad
 
 ## What's not built yet
 
-- `PUT /admin/spots/{id}` — update curated fields
-- `DELETE /admin/spots/{id}` — soft-delete (`is_active = false`)
-- `POST /admin/spots/{id}/refresh` — re-fetch Google data
-- `GET /me` / `PATCH /me` / `DELETE /me` — user profile endpoints
-- `GET /me/saved-spots` / `POST /me/saved-spots/{id}` / `DELETE /me/saved-spots/{id}` — save/unsave
+- `POST /admin/spots/{id}/refresh` — re-fetch Google data from Google Places
+- `GET /me` — fetch own profile
+- `DELETE /me` — delete own account
 
 ---
 
@@ -154,6 +204,16 @@ spotsvc/
 │   │   ├── router.py        # GET /spots, GET /spots/{id}
 │   │   ├── service.py       # list_spots, get_spot, compute_is_open_now
 │   │   └── schemas.py       # SpotPin, SpotDetail, SpotsResponse
+│   │
+│   ├── saved/
+│   │   ├── router.py        # /me/saved-spots, /me/collections, /collections/{id}
+│   │   ├── service.py       # save/unsave, collection CRUD
+│   │   └── schemas.py       # Pydantic request/response models
+│   │
+│   ├── users/
+│   │   ├── router.py        # PATCH /me
+│   │   ├── service.py       # update_profile
+│   │   └── schemas.py       # ProfileResponse, UpdateProfileRequest
 │   │
 │   ├── admin/
 │   │   ├── router.py        # /admin/* endpoints

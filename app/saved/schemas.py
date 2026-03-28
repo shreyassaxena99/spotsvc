@@ -16,11 +16,13 @@ class SaveSpotRequest(BaseModel):
 
 class CreateCollectionRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
     source_collection_id: Optional[uuid.UUID] = None
 
 
 class UpdateCollectionRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
     is_shareable: Optional[bool] = None
 
 
@@ -31,6 +33,7 @@ class AddSpotToCollectionRequest(BaseModel):
 class CollectionResponse(BaseModel):
     id: uuid.UUID
     name: str
+    description: Optional[str] = None
     is_shareable: bool
     spot_count: int
     created_at: datetime
@@ -54,5 +57,6 @@ class SavedSpotsResponse(BaseModel):
 class PublicCollectionResponse(BaseModel):
     id: uuid.UUID
     name: str
+    description: Optional[str] = None
     spot_count: int
     spots: list[SpotPin]

@@ -75,7 +75,7 @@ async def post_collection(
     user: dict = Depends(get_current_user),
 ) -> CollectionResponse:
     """Create a collection. Use source_collection_id to copy a shareable collection."""
-    return create_collection(uuid.UUID(user["user_id"]), payload.name, payload.source_collection_id)
+    return create_collection(uuid.UUID(user["user_id"]), payload.name, payload.description, payload.source_collection_id)
 
 
 @router.patch("/me/collections/{collection_id}", response_model=CollectionResponse)

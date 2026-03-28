@@ -268,6 +268,7 @@ def list_collections(user_id: uuid.UUID) -> CollectionListResponse:
         CollectionResponse(
             id=row["id"],
             name=row["name"],
+            description=row.get("description"),
             is_shareable=row["is_shareable"],
             spot_count=counts.get(row["id"], 0),
             created_at=row["created_at"],
@@ -281,6 +282,7 @@ def list_collections(user_id: uuid.UUID) -> CollectionListResponse:
 def create_collection(
     user_id: uuid.UUID,
     name: str,
+    description: Optional[str] = None,
     source_collection_id: Optional[uuid.UUID] = None,
 ) -> CollectionResponse:
     # Step 1: Enforce collection cap
@@ -313,13 +315,16 @@ def create_collection(
 
     # Step 3: Insert new collection
     now = datetime.now(timezone.utc).isoformat()
-    insert_result = supabase.table("collections").insert({
+    insert_payload: dict = {
         "user_id": str(user_id),
         "name": name,
         "is_shareable": False,
         "created_at": now,
         "updated_at": now,
-    }).execute()
+    }
+    if description is not None:
+        insert_payload["description"] = description
+    insert_result = supabase.table("collections").insert(insert_payload).execute()
     new_coll = insert_result.data[0]
     new_coll_id = new_coll["id"]
 
@@ -349,6 +354,7 @@ def create_collection(
     return CollectionResponse(
         id=new_coll["id"],
         name=new_coll["name"],
+        description=new_coll.get("description"),
         is_shareable=new_coll["is_shareable"],
         spot_count=spot_count,
         created_at=new_coll["created_at"],
@@ -388,6 +394,7 @@ def update_collection(
     return CollectionResponse(
         id=updated["id"],
         name=updated["name"],
+        description=updated.get("description"),
         is_shareable=updated["is_shareable"],
         spot_count=spot_count,
         created_at=updated["created_at"],
@@ -504,7 +511,7 @@ def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
     # Step 1: Fetch collection — 404 if not found or not shareable
     result = (
         supabase.table("collections")
-        .select("id,name,is_shareable")
+        .select("id,name,description,is_shareable")
         .eq("id", str(collection_id))
         .execute()
     )
@@ -523,7 +530,7 @@ def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
     )
     if not cs_result.data:
         return PublicCollectionResponse(
-            id=coll["id"], name=coll["name"], spot_count=0, spots=[]
+            id=coll["id"], name=coll["name"], description=coll.get("description"), spot_count=0, spots=[]
         )
     spot_ids = [row["spot_id"] for row in cs_result.data]
 
@@ -535,6 +542,7 @@ def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
     return PublicCollectionResponse(
         id=coll["id"],
         name=coll["name"],
+        description=coll.get("description"),
         spot_count=len(spots),
         spots=spots,
     )
