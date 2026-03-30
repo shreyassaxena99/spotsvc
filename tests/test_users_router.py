@@ -88,6 +88,7 @@ class TestPostUserProfile:
     def test_accepts_empty_body(self, mock_upsert, authed_client):
         resp = authed_client.post("/users/profile", json={})
         assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
         mock_upsert.assert_called_once_with(
             uuid.UUID(FAKE_USER_ID),
             working_style=None,
@@ -129,4 +130,9 @@ class TestGetUserProfile:
         mock_get.return_value = {"exists": False}
         resp = authed_client.get(f"/users/profile/{FAKE_USER_ID}")
         assert resp.status_code == 200
-        assert resp.json()["exists"] is False
+        data = resp.json()
+        assert data["exists"] is False
+        assert data["user_id"] is None
+        assert data["working_style"] is None
+        assert data["home_area"] is None
+        assert data["work_area"] is None
