@@ -114,6 +114,25 @@ class TestUpsertUserProfile:
         assert exc.value.status_code == 500
         mock_identify.assert_not_called()
 
+    @patch("app.users.service.identify")
+    @patch("app.users.service.supabase")
+    def test_all_fields_included_when_all_provided(self, mock_supabase, mock_identify):
+        from app.users.service import upsert_user_profile
+
+        mock_supabase.table.return_value = _chain(data=[])
+
+        upsert_user_profile(USER_ID, working_style="Student", home_area="North London", work_area="Central London")
+
+        call_kwargs = mock_supabase.table.return_value.upsert.call_args
+        upsert_payload = call_kwargs[0][0]
+        assert upsert_payload["working_style"] == "Student"
+        assert upsert_payload["home_area"] == "North London"
+        assert upsert_payload["work_area"] == "Central London"
+        mock_identify.assert_called_once_with(
+            str(USER_ID),
+            {"working_style": "Student", "home_area": "North London", "work_area": "Central London"},
+        )
+
 
 class TestGetUserProfile:
     @patch("app.users.service.supabase")

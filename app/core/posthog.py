@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _posthog_client = None
 
 
-def _get_client():
+def _get_client() -> Optional["Posthog"]:
     global _posthog_client
     if _posthog_client is None:
         from app.config import settings
