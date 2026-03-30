@@ -82,6 +82,11 @@ class TestUpsertUserProfile:
         upsert_user_profile(USER_ID, working_style="Fully remote")
 
         mock_supabase.table.assert_called_with("user_profiles")
+        call_kwargs = profile_chain.upsert.call_args
+        upsert_payload = call_kwargs[0][0]
+        assert upsert_payload["working_style"] == "Fully remote"
+        assert "home_area" not in upsert_payload
+        assert "work_area" not in upsert_payload
         mock_identify.assert_called_once_with(str(USER_ID), {"working_style": "Fully remote"})
 
     @patch("app.users.service.identify")
@@ -139,3 +144,15 @@ class TestGetUserProfile:
         result = get_user_profile(USER_ID)
 
         assert result == {"exists": False}
+
+    @patch("app.users.service.supabase")
+    def test_raises_500_on_supabase_error(self, mock_supabase):
+        from app.users.service import get_user_profile
+
+        profile_chain = _chain()
+        profile_chain.execute.side_effect = Exception("DB down")
+        mock_supabase.table.return_value = profile_chain
+
+        with pytest.raises(HTTPException) as exc:
+            get_user_profile(USER_ID)
+        assert exc.value.status_code == 500

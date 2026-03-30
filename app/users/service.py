@@ -57,15 +57,14 @@ def upsert_user_profile(
     work_area: Optional[str] = None,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
+    payload: dict = {"user_id": str(user_id), "updated_at": now}
+    for key, val in (("working_style", working_style), ("home_area", home_area), ("work_area", work_area)):
+        if val is not None:
+            payload[key] = val
+
     try:
         supabase.table("user_profiles").upsert(
-            {
-                "user_id": str(user_id),
-                "working_style": working_style,
-                "home_area": home_area,
-                "work_area": work_area,
-                "updated_at": now,
-            },
+            payload,
             on_conflict="user_id",
         ).execute()
     except Exception as exc:
@@ -83,12 +82,16 @@ def upsert_user_profile(
 
 
 def get_user_profile(user_id: uuid.UUID) -> dict:
-    result = (
-        supabase.table("user_profiles")
-        .select("user_id, working_style, home_area, work_area")
-        .eq("user_id", str(user_id))
-        .execute()
-    )
+    try:
+        result = (
+            supabase.table("user_profiles")
+            .select("user_id, working_style, home_area, work_area")
+            .eq("user_id", str(user_id))
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Failed to fetch user profile for %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch profile")
     if not result.data:
         return {"exists": False}
     row = result.data[0]
