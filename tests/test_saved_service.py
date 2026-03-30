@@ -322,7 +322,7 @@ class TestCreateCollection:
         mock_sb.table.side_effect = dispatch
         from app.saved.service import create_collection
         with pytest.raises(HTTPException) as exc:
-            create_collection(USER_ID, "Copy", uuid.uuid4())
+            create_collection(USER_ID, "Copy", source_collection_id=uuid.uuid4())
         assert exc.value.status_code == 404
 
     @patch("app.saved.service.supabase")
@@ -339,7 +339,7 @@ class TestCreateCollection:
         mock_sb.table.side_effect = dispatch
         from app.saved.service import create_collection
         with pytest.raises(HTTPException) as exc:
-            create_collection(USER_ID, "Copy", uuid.uuid4())
+            create_collection(USER_ID, "Copy", source_collection_id=uuid.uuid4())
         assert exc.value.status_code == 400
 
 
