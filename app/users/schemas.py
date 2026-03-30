@@ -15,3 +15,21 @@ class ProfileResponse(BaseModel):
     user_id: uuid.UUID
     display_name: Optional[str]
     email_opt_in: bool
+
+
+class OnboardingProfileRequest(BaseModel):
+    working_style: Optional[str] = None
+    home_area: Optional[str] = None
+    work_area: Optional[str] = None
+
+
+class OnboardingProfileResponse(BaseModel):
+    status: str
+
+
+class UserProfileData(BaseModel):
+    exists: bool
+    user_id: Optional[uuid.UUID] = None
+    working_style: Optional[str] = None
+    home_area: Optional[str] = None
+    work_area: Optional[str] = None
