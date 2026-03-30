@@ -56,5 +56,9 @@ async def health_check():
     except Exception as exc:
         logger.error("Health check DB ping failed: %s", exc, exc_info=True)
         db_status = str(exc)
-    admin_pwd_set = bool(settings.admin_pwd)
-    return {"status": "ok", "db": db_status, "admin_pwd_set": admin_pwd_set}
+    return {
+        "status": "ok",
+        "db": db_status,
+        "admin_pwd_set": bool(settings.admin_pwd),
+        "posthog_api_key_set": bool(settings.posthog_api_key),
+    }
