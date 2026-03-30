@@ -65,3 +65,68 @@ class TestPatchMe:
         resp = authed_client.patch("/me", json={})
         assert resp.status_code == 422
         mock_update.assert_not_called()
+
+
+class TestPostUserProfile:
+    def test_requires_auth(self, client):
+        resp = client.post("/users/profile", json={"working_style": "Fully remote"})
+        assert resp.status_code == 403
+
+    @patch("app.users.router.upsert_user_profile")
+    def test_calls_upsert_with_jwt_user_id(self, mock_upsert, authed_client):
+        resp = authed_client.post("/users/profile", json={"working_style": "Fully remote", "home_area": "North London"})
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+        mock_upsert.assert_called_once_with(
+            uuid.UUID(FAKE_USER_ID),
+            working_style="Fully remote",
+            home_area="North London",
+            work_area=None,
+        )
+
+    @patch("app.users.router.upsert_user_profile")
+    def test_accepts_empty_body(self, mock_upsert, authed_client):
+        resp = authed_client.post("/users/profile", json={})
+        assert resp.status_code == 200
+        mock_upsert.assert_called_once_with(
+            uuid.UUID(FAKE_USER_ID),
+            working_style=None,
+            home_area=None,
+            work_area=None,
+        )
+
+
+class TestGetUserProfile:
+    def test_requires_auth(self, client):
+        resp = client.get(f"/users/profile/{FAKE_USER_ID}")
+        assert resp.status_code == 403
+
+    @patch("app.users.router.get_user_profile")
+    def test_returns_403_if_user_id_mismatch(self, mock_get, authed_client):
+        other_id = str(uuid.uuid4())
+        resp = authed_client.get(f"/users/profile/{other_id}")
+        assert resp.status_code == 403
+        mock_get.assert_not_called()
+
+    @patch("app.users.router.get_user_profile")
+    def test_returns_profile_when_exists(self, mock_get, authed_client):
+        mock_get.return_value = {
+            "exists": True,
+            "user_id": FAKE_USER_ID,
+            "working_style": "Fully remote",
+            "home_area": "North London",
+            "work_area": None,
+        }
+        resp = authed_client.get(f"/users/profile/{FAKE_USER_ID}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["exists"] is True
+        assert data["working_style"] == "Fully remote"
+        mock_get.assert_called_once_with(uuid.UUID(FAKE_USER_ID))
+
+    @patch("app.users.router.get_user_profile")
+    def test_returns_not_exists(self, mock_get, authed_client):
+        mock_get.return_value = {"exists": False}
+        resp = authed_client.get(f"/users/profile/{FAKE_USER_ID}")
+        assert resp.status_code == 200
+        assert resp.json()["exists"] is False
