@@ -77,6 +77,13 @@ All fields are optional strings. No server-side enum validation — the iOS app 
 | `app/users/schemas.py` | Add `OnboardingProfileRequest`, `OnboardingProfileResponse`, `UserProfileData` |
 | `app/users/service.py` | Add `upsert_user_profile()` and `get_user_profile()` |
 | `app/users/router.py` | Add two new route handlers |
+| `app/main.py` | Update `/health` to report `posthog_api_key_set` |
+
+---
+
+## Health Check
+
+`GET /health` will include a `posthog_api_key_set: bool` field — consistent with the existing `admin_pwd_set` field. This lets Railway deployment checks confirm the key is configured in the environment.
 
 ---
 
