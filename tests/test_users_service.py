@@ -68,3 +68,74 @@ class TestUpdateProfile:
         with pytest.raises(HTTPException) as exc:
             update_profile(USER_ID)
         assert exc.value.status_code == 422
+
+
+class TestUpsertUserProfile:
+    @patch("app.users.service.identify")
+    @patch("app.users.service.supabase")
+    def test_upserts_to_supabase_and_calls_identify(self, mock_supabase, mock_identify):
+        from app.users.service import upsert_user_profile
+
+        profile_chain = _chain(data=[{"user_id": str(USER_ID), "working_style": "Fully remote", "home_area": None, "work_area": None}])
+        mock_supabase.table.return_value = profile_chain
+
+        upsert_user_profile(USER_ID, working_style="Fully remote")
+
+        mock_supabase.table.assert_called_with("user_profiles")
+        mock_identify.assert_called_once_with(str(USER_ID), {"working_style": "Fully remote"})
+
+    @patch("app.users.service.identify")
+    @patch("app.users.service.supabase")
+    def test_omits_none_props_from_identify(self, mock_supabase, mock_identify):
+        from app.users.service import upsert_user_profile
+
+        mock_supabase.table.return_value = _chain(data=[])
+
+        upsert_user_profile(USER_ID, working_style="Student", home_area=None, work_area=None)
+
+        mock_identify.assert_called_once_with(str(USER_ID), {"working_style": "Student"})
+
+    @patch("app.users.service.identify")
+    @patch("app.users.service.supabase")
+    def test_raises_500_on_supabase_error(self, mock_supabase, mock_identify):
+        from app.users.service import upsert_user_profile
+
+        profile_chain = _chain()
+        profile_chain.execute.side_effect = Exception("DB down")
+        mock_supabase.table.return_value = profile_chain
+
+        with pytest.raises(HTTPException) as exc:
+            upsert_user_profile(USER_ID, working_style="Fully remote")
+        assert exc.value.status_code == 500
+        mock_identify.assert_not_called()
+
+
+class TestGetUserProfile:
+    @patch("app.users.service.supabase")
+    def test_returns_profile_when_row_exists(self, mock_supabase):
+        from app.users.service import get_user_profile
+
+        profile_chain = _chain(data=[{
+            "user_id": str(USER_ID),
+            "working_style": "Fully remote",
+            "home_area": "North London",
+            "work_area": None,
+        }])
+        mock_supabase.table.return_value = profile_chain
+
+        result = get_user_profile(USER_ID)
+
+        assert result["exists"] is True
+        assert result["working_style"] == "Fully remote"
+        assert result["home_area"] == "North London"
+        assert result["work_area"] is None
+
+    @patch("app.users.service.supabase")
+    def test_returns_not_exists_when_no_row(self, mock_supabase):
+        from app.users.service import get_user_profile
+
+        mock_supabase.table.return_value = _chain(data=[])
+
+        result = get_user_profile(USER_ID)
+
+        assert result == {"exists": False}

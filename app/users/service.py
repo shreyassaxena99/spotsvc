@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.core.posthog import identify
 from app.db.database import supabase
 from app.users.schemas import ProfileResponse
 
@@ -47,3 +48,54 @@ def update_profile(
         display_name=updated_display_name,
         email_opt_in=updated_email_opt_in,
     )
+
+
+def upsert_user_profile(
+    user_id: uuid.UUID,
+    working_style: Optional[str] = None,
+    home_area: Optional[str] = None,
+    work_area: Optional[str] = None,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("user_profiles").upsert(
+            {
+                "user_id": str(user_id),
+                "working_style": working_style,
+                "home_area": home_area,
+                "work_area": work_area,
+                "updated_at": now,
+            },
+            on_conflict="user_id",
+        ).execute()
+    except Exception as exc:
+        logger.error("Failed to upsert user profile for %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to save profile")
+
+    props = {
+        k: v for k, v in {
+            "working_style": working_style,
+            "home_area": home_area,
+            "work_area": work_area,
+        }.items() if v is not None
+    }
+    identify(str(user_id), props)
+
+
+def get_user_profile(user_id: uuid.UUID) -> dict:
+    result = (
+        supabase.table("user_profiles")
+        .select("user_id, working_style, home_area, work_area")
+        .eq("user_id", str(user_id))
+        .execute()
+    )
+    if not result.data:
+        return {"exists": False}
+    row = result.data[0]
+    return {
+        "exists": True,
+        "user_id": row["user_id"],
+        "working_style": row.get("working_style"),
+        "home_area": row.get("home_area"),
+        "work_area": row.get("work_area"),
+    }
