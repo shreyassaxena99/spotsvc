@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +15,9 @@ class Settings(BaseSettings):
 
     # Google Places API (New)
     google_places_api_key: str
+
+    # PostHog
+    posthog_api_key: Optional[str] = None
 
     # App
     app_env: str = "development"
