@@ -74,3 +74,23 @@ class TestGetDetailsPhotoExtraction:
             result = google_places_client.get_details("ChIJabc")
 
         assert result.photo_references == []
+
+    def test_skips_photo_with_malformed_name(self):
+        from app.google_places.client import google_places_client
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "id": "ChIJabc",
+            "displayName": {"text": "Test Cafe"},
+            "location": {"latitude": 51.5, "longitude": -0.1},
+            "photos": [
+                {"name": "places/ChIJabc/photos/GOODREF"},
+                {"name": "malformed-no-photos-segment"},
+                {},  # missing name key
+            ],
+        }
+
+        with patch.object(google_places_client._session, "get", return_value=mock_response):
+            result = google_places_client.get_details("ChIJabc")
+
+        assert result.photo_references == ["GOODREF"]

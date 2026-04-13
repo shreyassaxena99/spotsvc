@@ -111,8 +111,9 @@ class GooglePlacesClient:
 
         # Extract bare photo reference tokens — capped at 5 to avoid excessive payload
         photo_references = [
-            p["name"].split("/photos/")[1]
+            parts[1]
             for p in data.get("photos", [])[:5]
+            if len(parts := p.get("name", "").split("/photos/")) == 2
         ]
 
         editorial = data.get("editorialSummary")
