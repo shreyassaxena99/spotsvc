@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
 
 def _minimal_pin_row(**overrides) -> dict:
@@ -79,6 +78,11 @@ class TestBuildPhotoUrls:
         from app.spots.service import _build_photo_urls
 
         assert _build_photo_urls({}) == []
+
+    def test_returns_empty_when_references_is_empty_list(self):
+        from app.spots.service import _build_photo_urls
+
+        assert _build_photo_urls({"photo_place_id": "ChIJabc", "photo_references": []}) == []
 
 
 class TestBuildSpotPin:
