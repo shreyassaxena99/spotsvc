@@ -10,13 +10,16 @@ from fastapi import HTTPException
 from app.admin.schemas import CreateSpotRequest, SpotResponse, UpdateSpotRequest
 from app.db.database import supabase
 from app.db.noise import NoiseMatrixInput, noise_matrix_from_db, noise_matrix_to_db
-from app.google_places.client import google_places_client
+from app.google_places.client import build_photo_url, google_places_client
 from app.google_places.schemas import PlaceDetails
 
 logger = logging.getLogger(__name__)
 
 
 def _build_spot_response(data: dict) -> SpotResponse:
+    place_id = data.get("photo_place_id") or data.get("google_place_id")
+    refs = data.get("photo_references") or []
+    photos = [build_photo_url(place_id, ref) for ref in refs] if place_id and refs else []
     return SpotResponse(
         id=data["id"],
         google_place_id=data["google_place_id"],
@@ -37,7 +40,7 @@ def _build_spot_response(data: dict) -> SpotResponse:
         timezone=data.get("timezone"),
         regular_hours=data.get("regular_hours"),
         current_hours=data.get("current_hours"),
-        photos=data.get("photos") or [],
+        photos=photos,
         outdoor_seating=data.get("outdoor_seating"),
         restroom=data.get("restroom"),
         serves_breakfast=data.get("serves_breakfast"),
@@ -112,7 +115,8 @@ def create_spot(
         "timezone": place.timezone or "Europe/London",
         "regular_hours": place.regular_hours,
         "current_hours": place.current_hours,
-        "photos": place.photos,
+        "photo_place_id": payload.google_place_id,
+        "photo_references": place.photo_references,
         "outdoor_seating": place.outdoor_seating,
         "restroom": place.restroom,
         "serves_breakfast": place.serves_breakfast,
