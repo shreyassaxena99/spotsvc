@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.db.database import supabase
 from app.db.models import SpotCategory
 from app.db.noise import noise_matrix_from_db
+from app.google_places.client import build_photo_url
 from app.spots.schemas import SpotDetail, SpotPin
 
 logger = logging.getLogger(__name__)
@@ -52,14 +53,16 @@ def compute_is_open_now(regular_hours: Optional[dict], timezone_str: Optional[st
         return None
 
 
-def _extract_cover_photo(photos: Optional[list]) -> Optional[str]:
-    if not photos:
-        return None
-    return photos[0] if isinstance(photos[0], str) else None
+def _build_photo_urls(row: dict) -> list[str]:
+    place_id = row.get("photo_place_id")
+    refs = row.get("photo_references") or []
+    if not place_id or not refs:
+        return []
+    return [build_photo_url(place_id, ref) for ref in refs]
 
 
 def _build_spot_pin(row: dict) -> SpotPin:
-    photos = row.get("photos") or []
+    photos = _build_photo_urls(row)
     return SpotPin(
         id=row["id"],
         name=row["name"],
@@ -73,12 +76,12 @@ def _build_spot_pin(row: dict) -> SpotPin:
         noise_matrix=noise_matrix_from_db(row.get("noise_matrix")),
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
-        cover_photo=_extract_cover_photo(photos),
+        cover_photo=photos[0] if photos else None,
     )
 
 
 def _build_spot_detail(row: dict) -> SpotDetail:
-    photos = row.get("photos") or []
+    photos = _build_photo_urls(row)
     return SpotDetail(
         id=row["id"],
         name=row["name"],
@@ -92,7 +95,7 @@ def _build_spot_detail(row: dict) -> SpotDetail:
         noise_matrix=noise_matrix_from_db(row.get("noise_matrix")),
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
-        cover_photo=_extract_cover_photo(photos),
+        cover_photo=photos[0] if photos else None,
         formatted_address=row.get("formatted_address"),
         phone_national=row.get("phone_national"),
         google_maps_uri=row.get("google_maps_uri"),
