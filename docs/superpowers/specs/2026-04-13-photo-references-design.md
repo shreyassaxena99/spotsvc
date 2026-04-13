@@ -77,8 +77,36 @@ No caching. No Redis in the project; URL construction is pure string interpolati
 
 The `photos: list[str]` field on `SpotDetail` and `cover_photo: Optional[str]` on `SpotPin` are unchanged. The iOS app receives fresh URLs without any client-side changes.
 
+## Migration Script
+
+`scripts/migrate_photo_references.py` — a standalone script to backfill `photo_place_id` and `photo_references` on all existing spots that don't have them yet.
+
+### Behaviour
+
+1. Query all spots where `photo_references IS NULL` and `is_active = TRUE`.
+2. For each spot, call `google_places_client.get_details(google_place_id)` to get a fresh API response.
+3. Extract the bare reference tokens (`photo_references`) from the response, set `photo_place_id = google_place_id`.
+4. `UPDATE` the spot row with the two new columns.
+5. Sleep 200 ms between calls to stay well within Google's QPS limits.
+6. On error (Google API failure, DB failure), log and skip — continue to the next spot.
+7. Print a summary: total processed, succeeded, skipped.
+
+### Running the script
+
+```bash
+# from the repo root with .env loaded
+python scripts/migrate_photo_references.py
+```
+
+The script uses the same `settings` / `supabase` / `google_places_client` singletons as the app, so `.env` (or env vars) must be present.
+
+### Implementation notes
+
+- Import `app.db.database.supabase`, `app.google_places.client.google_places_client`, and `app.config.settings` directly — no need to start the FastAPI app.
+- Fetch all candidate spots in a single query (no pagination needed for the small dataset).
+- The `photos` column is left untouched — the script only writes to the two new columns.
+
 ## Out of Scope
 
-- Migration of existing rows (re-fetching Google data to backfill `photo_references`) — separate operational task
 - Admin panel frontend update for `photo_references` rename on `PlaceDetails`
 - Caching layer (no Redis available)
