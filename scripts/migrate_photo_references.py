@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import time
+
+# Ensure the repo root is on sys.path so `app` is importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db.database import supabase
 from app.google_places.client import google_places_client
