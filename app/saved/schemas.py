@@ -35,6 +35,7 @@ class CollectionResponse(BaseModel):
     name: str
     description: Optional[str] = None
     is_shareable: bool
+    is_default: bool
     spot_count: int
     created_at: datetime
     updated_at: datetime

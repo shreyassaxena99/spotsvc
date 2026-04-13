@@ -79,6 +79,7 @@ class TestCollectionResponse:
             id=COLL_ID,
             name="My List",
             is_shareable=False,
+            is_default=False,
             spot_count=3,
             created_at=NOW,
             updated_at=NOW,

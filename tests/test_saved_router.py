@@ -119,7 +119,7 @@ class TestCollectionsEndpoints:
     def test_post_collections_returns_201(self, mock_create, authed_client):
         from app.saved.schemas import CollectionResponse
         mock_create.return_value = CollectionResponse(
-            id=uuid.UUID(COLL_ID), name="My List", is_shareable=False,
+            id=uuid.UUID(COLL_ID), name="My List", is_shareable=False, is_default=False,
             spot_count=0, created_at=datetime.fromisoformat(NOW),
             updated_at=datetime.fromisoformat(NOW),
         )

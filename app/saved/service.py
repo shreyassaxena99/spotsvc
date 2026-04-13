@@ -80,19 +80,31 @@ def save_spot(
             cs_rows, on_conflict="collection_id,spot_id", ignore_duplicates=True
         ).execute()
 
-    # Step 5: Fetch all user collection IDs
+    # Step 5: Fetch all user collections (id + is_default)
     user_colls_result = (
-        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+        supabase.table("collections").select("id,is_default").eq("user_id", str(user_id)).execute()
     )
     user_collection_ids = [row["id"] for row in user_colls_result.data]
+    default_coll_id = next(
+        (row["id"] for row in user_colls_result.data if row.get("is_default")), None
+    )
 
-    # Step 6: Fetch which of those collections this spot belongs to
+    # Step 5a: Auto-add spot to default collection (idempotent)
+    if default_coll_id:
+        supabase.table("collection_spots").upsert(
+            [{"collection_id": default_coll_id, "spot_id": str(spot_id)}],
+            on_conflict="collection_id,spot_id",
+            ignore_duplicates=True,
+        ).execute()
+
+    # Step 6: Fetch which of those collections this spot belongs to (excluding default)
     response_collection_ids: list[uuid.UUID] = []
-    if user_collection_ids:
+    non_default_ids = [cid for cid in user_collection_ids if cid != default_coll_id]
+    if non_default_ids:
         cs_result = (
             supabase.table("collection_spots")
             .select("collection_id")
-            .in_("collection_id", user_collection_ids)
+            .in_("collection_id", non_default_ids)
             .eq("spot_id", str(spot_id))
             .execute()
         )
@@ -132,9 +144,12 @@ def _list_saved_spots_filtered(
 
     # Step 2: Fetch all user's collection IDs (for full collection_ids in response)
     user_colls = (
-        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+        supabase.table("collections").select("id,is_default").eq("user_id", str(user_id)).execute()
     )
     user_collection_ids = [row["id"] for row in user_colls.data]
+    default_coll_id = next(
+        (row["id"] for row in user_colls.data if row.get("is_default")), None
+    )
 
     # Step 3: Fetch spots in this collection, ordered by added_at ASC
     cs_result = (
@@ -162,13 +177,14 @@ def _list_saved_spots_filtered(
     )
     saved_at_map = {row["spot_id"]: row["created_at"] for row in ss_result.data}
 
-    # Step 6: Fetch full collection membership across all user's collections
+    # Step 6: Fetch full collection membership across all user's non-default collections
     cs_all: dict[str, list[uuid.UUID]] = {}
-    if user_collection_ids:
+    non_default_ids = [cid for cid in user_collection_ids if cid != default_coll_id]
+    if non_default_ids:
         cs_all_result = (
             supabase.table("collection_spots")
             .select("collection_id,spot_id")
-            .in_("collection_id", user_collection_ids)
+            .in_("collection_id", non_default_ids)
             .execute()
         )
         for row in cs_all_result.data:
@@ -206,21 +222,25 @@ def _list_saved_spots_all(user_id: uuid.UUID) -> SavedSpotsResponse:
 
     # Step 2: Fetch all user's collection IDs
     user_colls = (
-        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+        supabase.table("collections").select("id,is_default").eq("user_id", str(user_id)).execute()
     )
     user_collection_ids = [row["id"] for row in user_colls.data]
+    default_coll_id = next(
+        (row["id"] for row in user_colls.data if row.get("is_default")), None
+    )
 
     # Step 3: Batch fetch spot rows, re-sort to created_at DESC order
     spots_result = supabase.table("spots").select("*").in_("id", spot_ids).execute()
     spot_map = {row["id"]: row for row in spots_result.data}
 
-    # Step 4: Fetch collection membership for all user's collections
+    # Step 4: Fetch collection membership for all user's non-default collections
     cs_all: dict[str, list[uuid.UUID]] = {}
-    if user_collection_ids:
+    non_default_ids = [cid for cid in user_collection_ids if cid != default_coll_id]
+    if non_default_ids:
         cs_all_result = (
             supabase.table("collection_spots")
             .select("collection_id,spot_id")
-            .in_("collection_id", user_collection_ids)
+            .in_("collection_id", non_default_ids)
             .execute()
         )
         for row in cs_all_result.data:
@@ -270,12 +290,15 @@ def list_collections(user_id: uuid.UUID) -> CollectionListResponse:
             name=row["name"],
             description=row.get("description"),
             is_shareable=row["is_shareable"],
+            is_default=row.get("is_default", False),
             spot_count=counts.get(row["id"], 0),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
         for row in result.data
     ]
+    # Default collection always first
+    colls.sort(key=lambda c: (not c.is_default,))
     return CollectionListResponse(collections=colls)
 
 
@@ -356,6 +379,7 @@ def create_collection(
         name=new_coll["name"],
         description=new_coll.get("description"),
         is_shareable=new_coll["is_shareable"],
+        is_default=new_coll.get("is_default", False),
         spot_count=spot_count,
         created_at=new_coll["created_at"],
         updated_at=new_coll["updated_at"],
@@ -374,6 +398,8 @@ def update_collection(
         raise HTTPException(status_code=404, detail="Collection not found")
     if result.data[0]["user_id"] != str(user_id):
         raise HTTPException(status_code=403, detail="Not your collection")
+    if result.data[0].get("is_default"):
+        raise HTTPException(status_code=400, detail="Cannot modify the default collection")
 
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
@@ -396,6 +422,7 @@ def update_collection(
         name=updated["name"],
         description=updated.get("description"),
         is_shareable=updated["is_shareable"],
+        is_default=updated.get("is_default", False),
         spot_count=spot_count,
         created_at=updated["created_at"],
         updated_at=updated["updated_at"],
@@ -404,12 +431,14 @@ def update_collection(
 
 def delete_collection(user_id: uuid.UUID, collection_id: uuid.UUID) -> None:
     result = (
-        supabase.table("collections").select("id,user_id").eq("id", str(collection_id)).execute()
+        supabase.table("collections").select("id,user_id,is_default").eq("id", str(collection_id)).execute()
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Collection not found")
     if result.data[0]["user_id"] != str(user_id):
         raise HTTPException(status_code=403, detail="Not your collection")
+    if result.data[0].get("is_default"):
+        raise HTTPException(status_code=400, detail="Cannot delete the default collection")
     supabase.table("collections").delete().eq("id", str(collection_id)).execute()
 
 
@@ -463,18 +492,21 @@ def add_spot_to_collection(
     )
     saved_at = ss_result.data[0]["created_at"]
 
-    # Step 6: Fetch all user collection IDs and spot's full collection membership
+    # Step 6: Fetch all user collection IDs and spot's full collection membership (excluding default)
     user_colls = (
-        supabase.table("collections").select("id").eq("user_id", str(user_id)).execute()
+        supabase.table("collections").select("id,is_default").eq("user_id", str(user_id)).execute()
     )
-    user_collection_ids = [row["id"] for row in user_colls.data]
+    default_coll_id = next(
+        (row["id"] for row in user_colls.data if row.get("is_default")), None
+    )
+    non_default_ids = [row["id"] for row in user_colls.data if row["id"] != default_coll_id]
 
     response_collection_ids: list[uuid.UUID] = []
-    if user_collection_ids:
+    if non_default_ids:
         cs_result = (
             supabase.table("collection_spots")
             .select("collection_id")
-            .in_("collection_id", user_collection_ids)
+            .in_("collection_id", non_default_ids)
             .eq("spot_id", str(spot_id))
             .execute()
         )

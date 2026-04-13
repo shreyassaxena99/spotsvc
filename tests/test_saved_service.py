@@ -36,6 +36,7 @@ def _tables(**by_name):
 USER_ID = uuid.uuid4()
 SPOT_ID = uuid.uuid4()
 COLL_ID = uuid.uuid4()
+DEFAULT_COLL_ID = uuid.uuid4()
 
 SPOT_ROW = {
     "id": str(SPOT_ID),
@@ -67,8 +68,19 @@ COLL_ROW = {
     "user_id": str(USER_ID),
     "name": "My List",
     "is_shareable": False,
+    "is_default": False,
     "created_at": "2026-03-15T09:00:00+00:00",
     "updated_at": "2026-03-15T09:00:00+00:00",
+}
+
+DEFAULT_COLL_ROW = {
+    "id": str(DEFAULT_COLL_ID),
+    "user_id": str(USER_ID),
+    "name": "Favourite Spots",
+    "is_shareable": False,
+    "is_default": True,
+    "created_at": "2026-03-15T08:00:00+00:00",
+    "updated_at": "2026-03-15T08:00:00+00:00",
 }
 
 
@@ -149,6 +161,52 @@ class TestSaveSpot:
         result = save_spot(USER_ID, SPOT_ID, [])
         assert isinstance(result, SavedSpotResponse)
         assert result.saved_at is not None
+
+    @patch("app.saved.service.supabase")
+    def test_collection_ids_excludes_default_collection(self, mock_sb):
+        # User has a default collection; spot is auto-added to it.
+        # The default collection must NOT appear in collection_ids on the response.
+        def dispatch(name):
+            if name == "spots":
+                return _chain(data=[SPOT_ROW])
+            if name == "saved_spots":
+                return _chain(data=[SAVED_ROW])
+            if name == "collections":
+                return _chain(data=[DEFAULT_COLL_ROW])
+            if name == "collection_spots":
+                # Spot is in the default collection
+                return _chain(data=[{"collection_id": str(DEFAULT_COLL_ID)}])
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import save_spot
+        result = save_spot(USER_ID, SPOT_ID, [])
+        assert DEFAULT_COLL_ID not in result.collection_ids
+
+    @patch("app.saved.service.supabase")
+    def test_auto_adds_spot_to_default_collection(self, mock_sb):
+        # When saving a spot, collection_spots should be upserted for the default collection.
+        cs_mock = _chain(data=[])
+        upserted_rows: list = []
+        def cs_upsert(rows, **kwargs):
+            upserted_rows.extend(rows if isinstance(rows, list) else [rows])
+            return cs_mock
+        cs_mock.upsert.side_effect = cs_upsert
+
+        def dispatch(name):
+            if name == "spots":
+                return _chain(data=[SPOT_ROW])
+            if name == "saved_spots":
+                return _chain(data=[SAVED_ROW])
+            if name == "collections":
+                return _chain(data=[DEFAULT_COLL_ROW])
+            if name == "collection_spots":
+                return cs_mock
+            return _chain()
+        mock_sb.table.side_effect = dispatch
+        from app.saved.service import save_spot
+        save_spot(USER_ID, SPOT_ID, [])
+        collection_ids_upserted = [r.get("collection_id") for r in upserted_rows]
+        assert str(DEFAULT_COLL_ID) in collection_ids_upserted
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +333,33 @@ class TestListCollections:
         assert len(result.collections) == 1
         assert result.collections[0].spot_count == 2
 
+    @patch("app.saved.service.supabase")
+    def test_default_collection_appears_first(self, mock_sb):
+        # DB returns regular collection before default (created_at order).
+        # Response must reorder: default first.
+        responses = {
+            "collections": _chain(data=[COLL_ROW, DEFAULT_COLL_ROW]),
+            "collection_spots": _chain(data=[]),
+        }
+        mock_sb.table.side_effect = _tables(**responses)
+        from app.saved.service import list_collections
+        result = list_collections(USER_ID)
+        assert len(result.collections) == 2
+        assert result.collections[0].id == DEFAULT_COLL_ID
+
+    @patch("app.saved.service.supabase")
+    def test_response_includes_is_default_field(self, mock_sb):
+        responses = {
+            "collections": _chain(data=[DEFAULT_COLL_ROW, COLL_ROW]),
+            "collection_spots": _chain(data=[]),
+        }
+        mock_sb.table.side_effect = _tables(**responses)
+        from app.saved.service import list_collections
+        result = list_collections(USER_ID)
+        ids_to_default = {c.id: c.is_default for c in result.collections}
+        assert ids_to_default[DEFAULT_COLL_ID] is True
+        assert ids_to_default[COLL_ID] is False
+
 
 # ---------------------------------------------------------------------------
 # create_collection
@@ -376,6 +461,15 @@ class TestUpdateCollection:
             update_collection(USER_ID, COLL_ID, UpdateCollectionRequest())
         assert exc.value.status_code == 422
 
+    @patch("app.saved.service.supabase")
+    def test_default_collection_raises_400(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[DEFAULT_COLL_ROW])
+        from app.saved.service import update_collection
+        from app.saved.schemas import UpdateCollectionRequest
+        with pytest.raises(HTTPException) as exc:
+            update_collection(USER_ID, DEFAULT_COLL_ID, UpdateCollectionRequest(name="Renamed"))
+        assert exc.value.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # delete_collection
@@ -405,6 +499,14 @@ class TestDeleteCollection:
         from app.saved.service import delete_collection
         # Should not raise
         delete_collection(USER_ID, COLL_ID)
+
+    @patch("app.saved.service.supabase")
+    def test_default_collection_raises_400(self, mock_sb):
+        mock_sb.table.return_value = _chain(data=[DEFAULT_COLL_ROW])
+        from app.saved.service import delete_collection
+        with pytest.raises(HTTPException) as exc:
+            delete_collection(USER_ID, DEFAULT_COLL_ID)
+        assert exc.value.status_code == 400
 
 
 # ---------------------------------------------------------------------------
