@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 def run() -> None:
+    # Only migrate active spots. Inactive spots can be migrated if/when reactivated
+    # via the admin panel, which will call get_details() and store fresh references.
     result = (
         supabase.table("spots")
         .select("id, google_place_id")
@@ -19,7 +21,7 @@ def run() -> None:
         .execute()
     )
     spots = result.data
-    logger.info("Found %d spots to migrate", len(spots))
+    logger.info("Found %d active spots to migrate", len(spots))
 
     succeeded = 0
     skipped = 0

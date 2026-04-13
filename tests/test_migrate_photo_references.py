@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 
 class TestMigratePhotoReferences:
+    @patch("scripts.migrate_photo_references.time")
     @patch("scripts.migrate_photo_references.google_places_client")
     @patch("scripts.migrate_photo_references.supabase")
-    def test_updates_spot_with_photo_references(self, mock_supabase, mock_gpc):
+    def test_updates_spot_with_photo_references(self, mock_supabase, mock_gpc, mock_time):
         from scripts.migrate_photo_references import run
 
         mock_supabase.table.return_value.select.return_value.is_.return_value.eq.return_value.execute.return_value = MagicMock(
@@ -29,10 +30,12 @@ class TestMigratePhotoReferences:
             "photo_references": ["ATCDNfWBGAg0OPr", "BXYZabc123"],
         })
         update_chain.eq.assert_called_once_with("id", "spot-1")
+        mock_time.sleep.assert_called_once_with(0.2)
 
+    @patch("scripts.migrate_photo_references.time")
     @patch("scripts.migrate_photo_references.google_places_client")
     @patch("scripts.migrate_photo_references.supabase")
-    def test_skips_spot_on_google_api_error(self, mock_supabase, mock_gpc):
+    def test_skips_spot_on_google_api_error(self, mock_supabase, mock_gpc, mock_time):
         from scripts.migrate_photo_references import run
 
         mock_supabase.table.return_value.select.return_value.is_.return_value.eq.return_value.execute.return_value = MagicMock(
@@ -57,6 +60,7 @@ class TestMigratePhotoReferences:
             "photo_place_id": "ChIJok",
             "photo_references": ["REFok"],
         })
+        mock_time.sleep.assert_called()
 
     @patch("scripts.migrate_photo_references.google_places_client")
     @patch("scripts.migrate_photo_references.supabase")
