@@ -147,6 +147,7 @@ def create_spot(
     }
     if payload.noise_matrix is not None:
         spot_data["noise_matrix"] = noise_matrix_to_db(payload.noise_matrix)
+    # NOTE: filter removes None values only. photo_references may be [] (falsy but valid) — do not change to `if v`.
     spot_data = {k: v for k, v in spot_data.items() if v is not None}
 
     try:

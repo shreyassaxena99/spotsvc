@@ -4,14 +4,6 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 
-def _chain(data=None):
-    m = MagicMock()
-    m.execute.return_value = MagicMock(data=data if data is not None else [], count=None)
-    for method in ("select", "eq", "insert", "update", "ilike", "order", "range", "is_"):
-        getattr(m, method).return_value = m
-    return m
-
-
 def _fake_place_details(place_id: str = "ChIJabc") -> MagicMock:
     d = MagicMock()
     d.name = "Test Cafe"
@@ -123,6 +115,17 @@ class TestBuildSpotResponse:
         row["photo_place_id"] = None
         result = _build_spot_response(row)
         assert result.photos == []
+
+    def test_photos_use_google_place_id_fallback_when_photo_place_id_missing(self):
+        from app.admin.service import _build_spot_response
+
+        row = _fake_spot_row()
+        row["photo_place_id"] = None  # not yet migrated — should fall back to google_place_id
+        result = _build_spot_response(row)
+        assert result.photos == [
+            "https://places.googleapis.com/v1/places/ChIJabc"
+            "/photos/ATCDNfWBGAg0OPr/media?maxHeightPx=800&key=test-google-key"
+        ]
 
 
 class TestCreateSpot:
