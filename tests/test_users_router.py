@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from unittest.mock import patch
 
@@ -27,6 +28,25 @@ def authed_client():
     app.dependency_overrides[get_current_user] = fake_current_user
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+JSON_HEADERS = {"Content-Type": "application/json"}
+
+
+class TestDeleteMe:
+    def test_requires_auth(self, client):
+        resp = client.request("DELETE", "/me", json={"reason": "No longer needed"})
+        assert resp.status_code == 403
+
+    @patch("app.users.router.delete_user")
+    def test_returns_204_with_reason(self, mock_delete, authed_client):
+        resp = authed_client.request("DELETE", "/me", json={"reason": "Too expensive"})
+        assert resp.status_code == 204
+        mock_delete.assert_called_once_with(uuid.UUID(FAKE_USER_ID), reason="Too expensive")
+
+    def test_requires_reason(self, authed_client):
+        resp = authed_client.request("DELETE", "/me", json={})
+        assert resp.status_code == 422
 
 
 class TestPatchMe:

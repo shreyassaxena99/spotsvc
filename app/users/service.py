@@ -14,6 +14,24 @@ from app.users.schemas import ProfileResponse
 logger = logging.getLogger(__name__)
 
 
+def delete_user(user_id: uuid.UUID, reason: str) -> None:
+    supabase.table("account_deletion_reasons").insert(
+        {"user_id": str(user_id), "reason": reason}
+    ).execute()
+
+    for table in ("saved_spots", "user_preferences", "user_profiles"):
+        try:
+            supabase.table(table).delete().eq("user_id", str(user_id)).execute()
+        except Exception as exc:
+            logger.error("Failed to delete from %s for user %s: %s", table, user_id, exc)
+
+    try:
+        supabase.auth.admin.delete_user(str(user_id))
+    except Exception as exc:
+        logger.error("Failed to delete auth user %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+
+
 def update_profile(
     user_id: uuid.UUID,
     display_name: Optional[str] = None,

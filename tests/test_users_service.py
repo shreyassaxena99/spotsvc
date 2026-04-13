@@ -7,6 +7,72 @@ import pytest
 from fastapi import HTTPException
 
 
+class TestDeleteUser:
+    @patch("app.users.service.supabase")
+    def test_stores_deletion_reason_before_deleting(self, mock_supabase):
+        from app.users.service import delete_user
+
+        chain = MagicMock()
+        chain.eq.return_value.execute.return_value = MagicMock(data=[])
+        chain.insert.return_value.execute.return_value = MagicMock(data=[{}])
+        mock_supabase.table.return_value = chain
+
+        delete_user(USER_ID, reason="Too expensive")
+
+        insert_calls = [
+            call[0][0] for call in mock_supabase.table.call_args_list
+            if mock_supabase.table.return_value.insert.called
+        ]
+        mock_supabase.table.assert_any_call("account_deletion_reasons")
+        insert_payload = chain.insert.call_args[0][0]
+        assert insert_payload["user_id"] == str(USER_ID)
+        assert insert_payload["reason"] == "Too expensive"
+
+    @patch("app.users.service.supabase")
+    def test_deletes_user_data_from_all_tables_and_auth(self, mock_supabase):
+        from app.users.service import delete_user
+
+        chain = MagicMock()
+        chain.eq.return_value.execute.return_value = MagicMock(data=[])
+        chain.insert.return_value.execute.return_value = MagicMock(data=[{}])
+        mock_supabase.table.return_value = chain
+
+        delete_user(USER_ID, reason="Testing")
+
+        deleted_tables = [call[0][0] for call in mock_supabase.table.call_args_list]
+        assert "saved_spots" in deleted_tables
+        assert "user_preferences" in deleted_tables
+        assert "user_profiles" in deleted_tables
+        mock_supabase.auth.admin.delete_user.assert_called_once_with(str(USER_ID))
+
+    @patch("app.users.service.supabase")
+    def test_raises_500_if_auth_deletion_fails(self, mock_supabase):
+        from app.users.service import delete_user
+
+        chain = MagicMock()
+        chain.eq.return_value.execute.return_value = MagicMock(data=[])
+        chain.insert.return_value.execute.return_value = MagicMock(data=[{}])
+        mock_supabase.table.return_value = chain
+        mock_supabase.auth.admin.delete_user.side_effect = Exception("Auth error")
+
+        with pytest.raises(HTTPException) as exc:
+            delete_user(USER_ID, reason="Testing")
+        assert exc.value.status_code == 500
+
+    @patch("app.users.service.supabase")
+    def test_still_deletes_auth_if_table_cleanup_fails(self, mock_supabase):
+        from app.users.service import delete_user
+
+        chain = MagicMock()
+        chain.eq.return_value.execute.side_effect = Exception("DB error")
+        chain.insert.return_value.execute.return_value = MagicMock(data=[{}])
+        mock_supabase.table.return_value = chain
+
+        delete_user(USER_ID, reason="Testing")  # should not raise
+
+        mock_supabase.auth.admin.delete_user.assert_called_once_with(str(USER_ID))
+
+
 def _chain(data=None):
     m = MagicMock()
     m.execute.return_value = MagicMock(data=data if data is not None else [])

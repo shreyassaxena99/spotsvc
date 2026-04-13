@@ -2,19 +2,29 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.dependencies import get_current_user
 from app.users.schemas import (
+    DeleteMeRequest,
     OnboardingProfileRequest,
     OnboardingProfileResponse,
     ProfileResponse,
     UpdateProfileRequest,
     UserProfileData,
 )
-from app.users.service import get_user_profile, update_profile, upsert_user_profile
+from app.users.service import delete_user, get_user_profile, update_profile, upsert_user_profile
 
 router = APIRouter(tags=["users"])
+
+
+@router.delete("/me")
+async def delete_me(
+    payload: DeleteMeRequest,
+    user: dict = Depends(get_current_user),
+) -> Response:
+    delete_user(uuid.UUID(user["user_id"]), reason=payload.reason)
+    return Response(status_code=204)
 
 
 @router.patch("/me", response_model=ProfileResponse)
