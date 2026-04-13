@@ -30,7 +30,7 @@ class PlaceDetails(BaseModel):
     timezone: Optional[str] = None
     regular_hours: Optional[dict[str, Any]] = None
     current_hours: Optional[dict[str, Any]] = None
-    photos: list[str] = []
+    photo_references: list[str] = []
     outdoor_seating: Optional[bool] = None
     restroom: Optional[bool] = None
     serves_breakfast: Optional[bool] = None

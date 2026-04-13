@@ -57,6 +57,14 @@ _DETAIL_FIELD_MASK = ",".join([
 ])
 
 
+def build_photo_url(place_id: str, photo_ref: str, max_height: int = 800) -> str:
+    return (
+        f"https://places.googleapis.com/v1/places/{place_id}"
+        f"/photos/{photo_ref}/media"
+        f"?maxHeightPx={max_height}&key={settings.google_places_api_key}"
+    )
+
+
 class GooglePlacesClient:
     def __init__(self) -> None:
         self._session = requests.Session()
@@ -101,12 +109,9 @@ class GooglePlacesClient:
 
         location = data.get("location", {})
 
-        # Build photo media URLs — capped at 5 to avoid excessive payload
-        photos = [
-            (
-                f"https://places.googleapis.com/v1/{p['name']}/media"
-                f"?maxHeightPx=800&key={settings.google_places_api_key}"
-            )
+        # Extract bare photo reference tokens — capped at 5 to avoid excessive payload
+        photo_references = [
+            p["name"].split("/photos/")[1]
             for p in data.get("photos", [])[:5]
         ]
 
@@ -132,7 +137,7 @@ class GooglePlacesClient:
             timezone=tz.get("id") if tz else None,
             regular_hours=data.get("regularOpeningHours"),
             current_hours=data.get("currentOpeningHours"),
-            photos=photos,
+            photo_references=photo_references,
             outdoor_seating=data.get("outdoorSeating"),
             restroom=data.get("restroom"),
             serves_breakfast=data.get("servesBreakfast"),
