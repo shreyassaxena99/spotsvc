@@ -99,6 +99,34 @@ def upsert_user_profile(
     identify(str(user_id), props)
 
 
+def get_me(user_id: uuid.UUID) -> ProfileResponse:
+    try:
+        auth_result = supabase.auth.admin.get_user_by_id(str(user_id))
+    except Exception as exc:
+        logger.error("Failed to fetch auth user %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch user")
+
+    display_name: Optional[str] = None
+    if auth_result.user:
+        display_name = auth_result.user.user_metadata.get("full_name")
+
+    email_opt_in = False
+    try:
+        pref_result = (
+            supabase.table("user_preferences")
+            .select("email_opt_in")
+            .eq("user_id", str(user_id))
+            .maybe_single()
+            .execute()
+        )
+        if pref_result.data:
+            email_opt_in = pref_result.data.get("email_opt_in", False)
+    except Exception as exc:
+        logger.error("Failed to fetch preferences for %s: %s", user_id, exc)
+
+    return ProfileResponse(user_id=user_id, display_name=display_name, email_opt_in=email_opt_in)
+
+
 def get_user_profile(user_id: uuid.UUID) -> dict:
     try:
         result = (

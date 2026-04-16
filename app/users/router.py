@@ -13,9 +13,16 @@ from app.users.schemas import (
     UpdateProfileRequest,
     UserProfileData,
 )
-from app.users.service import delete_user, get_user_profile, update_profile, upsert_user_profile
+from app.users.service import delete_user, get_me, get_user_profile, update_profile, upsert_user_profile
 
 router = APIRouter(tags=["users"])
+
+
+@router.get("/me", response_model=ProfileResponse)
+async def get_me_endpoint(
+    user: dict = Depends(get_current_user),
+) -> ProfileResponse:
+    return get_me(uuid.UUID(user["user_id"]))
 
 
 @router.delete("/me")
