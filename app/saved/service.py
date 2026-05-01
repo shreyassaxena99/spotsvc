@@ -543,13 +543,27 @@ def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
     # Step 1: Fetch collection — 404 if not found or not shareable
     result = (
         supabase.table("collections")
-        .select("id,name,description,is_shareable")
+        .select("id,name,description,is_shareable,user_id")
         .eq("id", str(collection_id))
         .execute()
     )
     if not result.data or not result.data[0]["is_shareable"]:
         raise HTTPException(status_code=404, detail="Collection not found")
     coll = result.data[0]
+
+    owner_display_name: Optional[str] = None
+    try:
+        profile_result = (
+            supabase.table("profiles")
+            .select("display_name")
+            .eq("id", coll["user_id"])
+            .maybe_single()
+            .execute()
+        )
+        if profile_result.data:
+            owner_display_name = profile_result.data.get("display_name")
+    except Exception as exc:
+        logger.error("Failed to fetch owner profile for collection %s: %s", collection_id, exc)
 
     # Step 2: Fetch spots capped at 200, ordered by added_at ASC
     cs_result = (
@@ -562,7 +576,8 @@ def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
     )
     if not cs_result.data:
         return PublicCollectionResponse(
-            id=coll["id"], name=coll["name"], description=coll.get("description"), spot_count=0, spots=[]
+            id=coll["id"], name=coll["name"], description=coll.get("description"),
+            owner_display_name=owner_display_name, spot_count=0, spots=[]
         )
     spot_ids = [row["spot_id"] for row in cs_result.data]
 
@@ -575,6 +590,7 @@ def get_public_collection(collection_id: uuid.UUID) -> PublicCollectionResponse:
         id=coll["id"],
         name=coll["name"],
         description=coll.get("description"),
+        owner_display_name=owner_display_name,
         spot_count=len(spots),
         spots=spots,
     )

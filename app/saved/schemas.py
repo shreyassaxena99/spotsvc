@@ -59,5 +59,6 @@ class PublicCollectionResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: Optional[str] = None
+    owner_display_name: Optional[str] = None
     spot_count: int
     spots: list[SpotPin]

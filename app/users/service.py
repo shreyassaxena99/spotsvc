@@ -73,12 +73,15 @@ def upsert_user_profile(
     working_style: Optional[str] = None,
     home_area: Optional[str] = None,
     work_area: Optional[str] = None,
+    wfh_days: Optional[list[str]] = None,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     payload: dict = {"user_id": str(user_id), "updated_at": now}
     for key, val in (("working_style", working_style), ("home_area", home_area), ("work_area", work_area)):
         if val is not None:
             payload[key] = val
+    if wfh_days is not None:
+        payload["wfh_days"] = wfh_days
 
     try:
         supabase.table("user_profiles").upsert(
@@ -131,7 +134,7 @@ def get_user_profile(user_id: uuid.UUID) -> dict:
     try:
         result = (
             supabase.table("user_profiles")
-            .select("user_id, working_style, home_area, work_area")
+            .select("user_id, working_style, home_area, work_area, wfh_days")
             .eq("user_id", str(user_id))
             .execute()
         )
@@ -147,4 +150,29 @@ def get_user_profile(user_id: uuid.UUID) -> dict:
         "working_style": row.get("working_style"),
         "home_area": row.get("home_area"),
         "work_area": row.get("work_area"),
+        "wfh_days": row.get("wfh_days"),
     }
+
+
+def upsert_push_token(user_id: uuid.UUID, token: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("user_profiles").upsert(
+            {"user_id": str(user_id), "push_token": token, "push_token_updated_at": now},
+            on_conflict="user_id",
+        ).execute()
+    except Exception as exc:
+        logger.error("Failed to upsert push token for %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to save push token")
+
+
+def delete_push_token(user_id: uuid.UUID) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        supabase.table("user_profiles").upsert(
+            {"user_id": str(user_id), "push_token": None, "push_token_updated_at": now},
+            on_conflict="user_id",
+        ).execute()
+    except Exception as exc:
+        logger.error("Failed to clear push token for %s: %s", user_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to clear push token")

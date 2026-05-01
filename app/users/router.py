@@ -10,10 +10,19 @@ from app.users.schemas import (
     OnboardingProfileRequest,
     OnboardingProfileResponse,
     ProfileResponse,
+    PushTokenRequest,
     UpdateProfileRequest,
     UserProfileData,
 )
-from app.users.service import delete_user, get_me, get_user_profile, update_profile, upsert_user_profile
+from app.users.service import (
+    delete_push_token,
+    delete_user,
+    get_me,
+    get_user_profile,
+    update_profile,
+    upsert_push_token,
+    upsert_user_profile,
+)
 
 router = APIRouter(tags=["users"])
 
@@ -60,6 +69,7 @@ async def post_user_profile(
         working_style=payload.working_style,
         home_area=payload.home_area,
         work_area=payload.work_area,
+        wfh_days=payload.wfh_days,
     )
     return OnboardingProfileResponse(status="ok")
 
@@ -74,3 +84,20 @@ async def get_profile(
         raise HTTPException(status_code=403, detail="Forbidden")
     data = get_user_profile(user_id)
     return UserProfileData(**data)
+
+
+@router.put("/me/push-token", status_code=204)
+async def put_push_token(
+    payload: PushTokenRequest,
+    user: dict = Depends(get_current_user),
+) -> Response:
+    upsert_push_token(uuid.UUID(user["user_id"]), payload.token)
+    return Response(status_code=204)
+
+
+@router.delete("/me/push-token", status_code=204)
+async def remove_push_token(
+    user: dict = Depends(get_current_user),
+) -> Response:
+    delete_push_token(uuid.UUID(user["user_id"]))
+    return Response(status_code=204)

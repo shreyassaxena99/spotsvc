@@ -23,5 +23,12 @@ class Settings(BaseSettings):
     app_env: str = "development"
     admin_pwd: str
 
+    # APNs (push notifications)
+    apns_key_content: Optional[str] = None  # PEM-encoded .p8 key contents
+    apns_key_id: Optional[str] = None
+    apns_team_id: Optional[str] = None
+    apns_bundle_id: Optional[str] = None
+    apns_sandbox: bool = False  # True for development APNs endpoint
+
 
 settings = Settings()

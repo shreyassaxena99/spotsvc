@@ -25,6 +25,7 @@ class OnboardingProfileRequest(BaseModel):
     working_style: Optional[str] = None
     home_area: Optional[str] = None
     work_area: Optional[str] = None
+    wfh_days: Optional[list[str]] = None
 
 
 class OnboardingProfileResponse(BaseModel):
@@ -37,3 +38,8 @@ class UserProfileData(BaseModel):
     working_style: Optional[str] = None
     home_area: Optional[str] = None
     work_area: Optional[str] = None
+    wfh_days: Optional[list[str]] = None
+
+
+class PushTokenRequest(BaseModel):
+    token: str = Field(..., min_length=1)
