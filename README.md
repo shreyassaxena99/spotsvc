@@ -15,23 +15,27 @@ flowchart TD
 
     subgraph spotsvc["spotsvc (FastAPI on Railway)"]
         spots["/spots/* — public"]
-        me["/me/* — authenticated"]
+        me["/me/* /users/* — authenticated"]
         suggestions["/suggestions — public"]
+        collections["/collections/* — public"]
         admin["/admin/* — admin only"]
     end
 
     Supabase["Supabase\nPostgres + PostGIS + Auth"]
     Google["Google Places API (New)"]
+    APNS["Apple Push\nNotification Service"]
 
     iOS -->|"Supabase JWT"| spots
     iOS -->|"Supabase JWT"| me
     iOS -->|"no auth"| suggestions
+    iOS -->|"no auth"| collections
     Admin -->|"Supabase JWT + Admin Password"| admin
 
     spots -->|"supabase-py v2 (HTTP/REST)"| Supabase
     me -->|"supabase-py v2 (HTTP/REST)"| Supabase
     admin -->|"supabase-py v2 (HTTP/REST)"| Supabase
     admin -->|"requests (sync)"| Google
+    spotsvc -->|"push notifications"| APNS
 ```
 
 **Key principles:**
@@ -85,13 +89,19 @@ No authentication required.
 |--------|----------|-------------|
 | `POST` | `/suggestions` | Submit a public suggestion for a new spot. No auth required. |
 
-### Authenticated — user (`/me/*`)
+### Authenticated — user (`/me/*`, `/users/*`)
 
 Requires a valid Supabase JWT (`Authorization: Bearer <token>`).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `PATCH` | `/me` | Update user profile (`display_name`, `email_opt_in`) |
+| `GET` | `/me` | Fetch own profile (`user_id`, `display_name`, `email_opt_in`) |
+| `PATCH` | `/me` | Update profile fields (`display_name`, `email_opt_in`) |
+| `DELETE` | `/me` | Delete own account. Body: `{ "reason": "..." }` |
+| `PUT` | `/me/push-token` | Register an APN push token. Body: `{ "token": "..." }` |
+| `DELETE` | `/me/push-token` | Remove the stored push token |
+| `POST` | `/users/profile` | Upsert onboarding profile (`working_style`, `home_area`, `work_area`, `wfh_days`) |
+| `GET` | `/users/profile/{user_id}` | Fetch onboarding profile. Returns `{ "exists": false }` if not yet set. |
 | `GET` | `/me/saved-spots` | List saved spots. Optional `?collection_id=` filter. |
 | `POST` | `/me/saved-spots` | Save a spot. Optionally add to one or more collections in the same call. |
 | `DELETE` | `/me/saved-spots/{spot_id}` | Unsave a spot. Also removes it from all collections. |
@@ -174,8 +184,6 @@ sequenceDiagram
 ## What's not built yet
 
 - `POST /admin/spots/{id}/refresh` — re-fetch Google data from Google Places
-- `GET /me` — fetch own profile
-- `DELETE /me` — delete own account
 
 ---
 
@@ -211,9 +219,9 @@ spotsvc/
 │   │   └── schemas.py       # Pydantic request/response models
 │   │
 │   ├── users/
-│   │   ├── router.py        # PATCH /me
-│   │   ├── service.py       # update_profile
-│   │   └── schemas.py       # ProfileResponse, UpdateProfileRequest
+│   │   ├── router.py        # GET|PATCH|DELETE /me, /me/push-token, /users/profile
+│   │   ├── service.py       # get_me, update_profile, delete_user, push token, onboarding profile
+│   │   └── schemas.py       # ProfileResponse, UpdateProfileRequest, PushTokenRequest, etc.
 │   │
 │   ├── admin/
 │   │   ├── router.py        # /admin/* endpoints
