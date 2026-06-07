@@ -15,7 +15,7 @@ from app.admin.schemas import (
     ValidateRequest,
     ValidateResponse,
 )
-from app.admin.service import create_spot, delete_spot, list_spots, update_spot
+from app.admin.service import create_spot, delete_spot, list_spots, refresh_spot, update_spot
 from app.config import settings
 from app.dependencies import no_auth as get_admin_user
 from app.google_places.client import google_places_client
@@ -88,6 +88,15 @@ async def edit_spot(
 ) -> SpotResponse:
     """Update curated fields on an existing spot. Only provided fields are changed."""
     return update_spot(spot_id, payload)
+
+
+@router.post("/spots/{spot_id}/refresh", response_model=SpotResponse)
+async def refresh_spot_data(
+    spot_id: uuid.UUID,
+    admin: dict = Depends(get_admin_user),
+) -> SpotResponse:
+    """Re-fetch all Google Places data for a spot. Preserves curated fields (category, access_type, etc.)."""
+    return refresh_spot(spot_id)
 
 
 @router.delete("/spots/{spot_id}", tags=["admin"])

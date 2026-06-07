@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.admin.router import router as admin_router
+from app.admin.service import refresh_all_spots
 from app.saved.router import router as saved_router
 from app.spots.router import router as spots_router
 from app.suggestions.router import router as suggestions_router
@@ -20,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler.add_job(refresh_all_spots, "cron", day_of_week="mon", hour=3)
+    scheduler.start()
+    logger.info("Scheduled weekly spot refresh: Mondays at 03:00 UTC")
     yield
+    scheduler.shutdown(wait=False)
     google_places_client.close()
 
 

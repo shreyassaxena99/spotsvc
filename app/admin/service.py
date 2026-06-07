@@ -195,6 +195,84 @@ def update_spot(spot_id: uuid.UUID, payload: UpdateSpotRequest) -> SpotResponse:
     return _build_spot_response(result.data[0])
 
 
+def refresh_spot(spot_id: uuid.UUID) -> SpotResponse:
+    result = supabase.table("spots").select("google_place_id").eq("id", str(spot_id)).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Spot not found")
+
+    google_place_id = result.data[0]["google_place_id"]
+    try:
+        place: PlaceDetails = google_places_client.get_details(google_place_id)
+    except Exception as exc:
+        logger.error("Google Places API error for place_id=%s: %s", google_place_id, exc)
+        raise HTTPException(status_code=502, detail=f"Google Places API error: {exc}")
+
+    updates: dict = {
+        "name": place.name,
+        "formatted_address": place.formatted_address,
+        "short_address": place.short_address,
+        "latitude": place.latitude,
+        "longitude": place.longitude,
+        "phone_national": place.phone_national,
+        "phone_international": place.phone_international,
+        "google_maps_uri": place.google_maps_uri,
+        "website_uri": place.website_uri,
+        "price_level": place.price_level,
+        "rating": place.rating,
+        "user_rating_count": place.user_rating_count,
+        "editorial_summary": place.editorial_summary,
+        "business_status": place.business_status,
+        "timezone": place.timezone or "Europe/London",
+        "regular_hours": place.regular_hours,
+        "current_hours": place.current_hours,
+        "photo_place_id": google_place_id,
+        "photo_references": place.photo_references,
+        "outdoor_seating": place.outdoor_seating,
+        "restroom": place.restroom,
+        "serves_breakfast": place.serves_breakfast,
+        "serves_lunch": place.serves_lunch,
+        "serves_dinner": place.serves_dinner,
+        "serves_brunch": place.serves_brunch,
+        "serves_coffee": place.serves_coffee,
+        "allows_dogs": place.allows_dogs,
+        "good_for_groups": place.good_for_groups,
+        "dine_in": place.dine_in,
+        "takeout": place.takeout,
+        "delivery": place.delivery,
+        "reservable": place.reservable,
+        "parking_options": place.parking_options,
+        "payment_options": place.payment_options,
+        "accessibility_options": place.accessibility_options,
+        "google_data_updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Keep None values out so we don't wipe fields Google didn't return this time,
+    # except photo_references which may legitimately be [] (empty list).
+    updates = {k: v for k, v in updates.items() if v is not None or k == "photo_references"}
+
+    result = supabase.table("spots").update(updates).eq("id", str(spot_id)).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Refresh returned no data")
+
+    return _build_spot_response(result.data[0])
+
+
+def refresh_all_spots() -> None:
+    result = supabase.table("spots").select("id, name").eq("is_active", True).execute()
+    spots = result.data or []
+    logger.info("Weekly refresh: %d active spots", len(spots))
+    succeeded = 0
+    failed = 0
+    for spot in spots:
+        try:
+            refresh_spot(uuid.UUID(spot["id"]))
+            succeeded += 1
+        except Exception as exc:
+            logger.error("Refresh failed for spot %s (%s): %s", spot.get("name"), spot["id"], exc)
+            failed += 1
+    logger.info("Weekly refresh done. Succeeded: %d  Failed: %d", succeeded, failed)
+
+
 def delete_spot(spot_id: uuid.UUID) -> None:
     result = supabase.table("spots").select("id").eq("id", str(spot_id)).execute()
     if not result.data:
