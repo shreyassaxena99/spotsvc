@@ -24,6 +24,7 @@ class SpotPin(BaseModel):
     rating: Optional[float]
     is_open_now: Optional[bool]
     is_in_use: Optional[bool] = None
+    pod_id: Optional[uuid.UUID] = None
     cover_photo: Optional[str]
 
 
@@ -41,6 +42,7 @@ class SpotDetail(BaseModel):
     rating: Optional[float]
     is_open_now: Optional[bool]
     is_in_use: Optional[bool] = None
+    pod_id: Optional[uuid.UUID] = None
     cover_photo: Optional[str]
     # Extended fields
     formatted_address: Optional[str]

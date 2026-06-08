@@ -86,6 +86,7 @@ def _build_spot_pin(row: dict) -> SpotPin:
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
         is_in_use=_pod_is_in_use(row),
+        pod_id=row.get("pod_id"),
         cover_photo=photos[0] if photos else None,
     )
 
@@ -106,6 +107,7 @@ def _build_spot_detail(row: dict) -> SpotDetail:
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
         is_in_use=_pod_is_in_use(row),
+        pod_id=row.get("pod_id"),
         cover_photo=photos[0] if photos else None,
         formatted_address=row.get("formatted_address"),
         phone_national=row.get("phone_national"),
