@@ -10,6 +10,7 @@ class SpotCategory(str, enum.Enum):
     coworking = "coworking"
     library = "library"
     restaurant = "restaurant"
+    pod = "pod"
     other = "other"
 
 
