@@ -71,9 +71,10 @@ No authentication required.
       "access_type": "purchase_required",
       "wifi_available": true,
       "power_outlets": true,
-      "noise_level": "moderate",
+      "noise_matrix": null,
       "rating": 4.5,
       "is_open_now": true,
+      "is_in_use": null,
       "cover_photo": "https://..."
     }
   ],
@@ -81,7 +82,9 @@ No authentication required.
 }
 ```
 
-`category` values: `cafe` `gym` `hotel_lobby` `coworking` `library` `restaurant` `other`
+`is_in_use` is `null` for all non-pod spots. For `category: "pod"` spots it reflects live occupancy from the `pods` table (`true` / `false`). The iOS model treats it as `Bool?` so it degrades gracefully when absent.
+
+`category` values: `cafe` `gym` `hotel_lobby` `coworking` `library` `restaurant` `pod` `other`
 
 ### Public — suggestions (`/suggestions`)
 
@@ -130,6 +133,7 @@ Requires a valid Supabase JWT with `app_metadata.role = "admin"`, plus the `X-Ad
 | `POST` | `/admin/spots` | Create a spot (fetches all data from Google, stores in DB) |
 | `PUT` | `/admin/spots/{id}` | Update curated fields on an existing spot |
 | `DELETE` | `/admin/spots/{id}` | Soft-delete a spot (`is_active = false`) |
+| `POST` | `/admin/spots/{id}/refresh` | Re-fetch all Google Places data for a spot. Preserves curated fields. |
 | `GET` | `/admin/suggestions` | List submitted suggestions (paginated, filterable by status) |
 | `PATCH` | `/admin/suggestions/{id}` | Approve or reject a suggestion. Approving auto-creates the spot. |
 | `POST` | `/admin/validate` | Validate the admin password |
@@ -169,7 +173,7 @@ sequenceDiagram
   "access_type": "purchase_required",
   "wifi_available": true,
   "power_outlets": true,
-  "noise_level": "moderate",
+  "noise_matrix": null,
   "description": "Bright, spacious cafe on Clerkenwell Road with reliable Wi-Fi.",
   "admin_notes": "Check upstairs for more seating."
 }
@@ -183,7 +187,7 @@ sequenceDiagram
 
 ## What's not built yet
 
-- `POST /admin/spots/{id}/refresh` — re-fetch Google data from Google Places
+- Expose `pod_id` on `POST /admin/spots` and `PUT /admin/spots/{id}` so a pod spot can be linked to its `pods` table row at creation/edit time
 
 ---
 
@@ -299,3 +303,5 @@ WHERE id = 'user-uuid-here';
 - **PostGIS trigger** — The `location` geography column is set automatically by a `BEFORE INSERT` trigger from `latitude` and `longitude` float columns. Always insert lat/lng; never set `location` directly.
 - **is_open_now** — Computed server-side from `regular_hours` (Google's Sunday=0 period format) and the spot's `timezone` field using `pytz`.
 - **Docs in non-production only** — `/docs` and `/redoc` are disabled when `APP_ENV=production`.
+- **Weekly Google data refresh** — APScheduler runs `refresh_all_spots` every Monday at 03:00 UTC inside the existing uvicorn process. No separate Railway service needed. For a one-off manual run: `python scripts/refresh_all_spots.py` (add `--all` to include inactive spots).
+- **Pods** — A `pod` category exists for Qwip's own work pods across London. Pod spots are added via the same admin flow (they're Google Maps listings). `GET /spots` and `GET /spots/{id}` join the `pods` table via `spots.pod_id → pods.id` and surface `is_in_use: Bool?` — `null` for all non-pod spots.

@@ -17,7 +17,9 @@ from app.spots.schemas import SpotDetail, SpotPin
 logger = logging.getLogger(__name__)
 
 
-def compute_is_open_now(regular_hours: Optional[dict], timezone_str: Optional[str]) -> Optional[bool]:
+def compute_is_open_now(
+    regular_hours: Optional[dict], timezone_str: Optional[str]
+) -> Optional[bool]:
     if not regular_hours or not timezone_str:
         return None
     periods = regular_hours.get("periods")
@@ -61,6 +63,13 @@ def _build_photo_urls(row: dict) -> list[str]:
     return [build_photo_url(place_id, ref) for ref in refs]
 
 
+def _pod_is_in_use(row: dict) -> Optional[bool]:
+    pods = row.get("pods")
+    if not pods:
+        return None
+    return pods.get("in_use")
+
+
 def _build_spot_pin(row: dict) -> SpotPin:
     photos = _build_photo_urls(row)
     return SpotPin(
@@ -76,6 +85,7 @@ def _build_spot_pin(row: dict) -> SpotPin:
         noise_matrix=noise_matrix_from_db(row.get("noise_matrix")),
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
+        is_in_use=_pod_is_in_use(row),
         cover_photo=photos[0] if photos else None,
     )
 
@@ -95,6 +105,7 @@ def _build_spot_detail(row: dict) -> SpotDetail:
         noise_matrix=noise_matrix_from_db(row.get("noise_matrix")),
         rating=row.get("rating"),
         is_open_now=compute_is_open_now(row.get("regular_hours"), row.get("timezone")),
+        is_in_use=_pod_is_in_use(row),
         cover_photo=photos[0] if photos else None,
         formatted_address=row.get("formatted_address"),
         phone_national=row.get("phone_national"),
@@ -124,7 +135,7 @@ def list_spots(
     category: Optional[SpotCategory] = None,
     is_open_now_filter: Optional[bool] = None,
 ) -> tuple[list[SpotPin], int]:
-    query = supabase.table("spots").select("*").eq("is_active", True)
+    query = supabase.table("spots").select("*, pods(is_in_use)").eq("is_active", True)
     if category is not None:
         query = query.eq("category", category.value)
     result = query.execute()
@@ -137,7 +148,7 @@ def list_spots(
 def get_spot(spot_id: uuid.UUID) -> SpotDetail:
     result = (
         supabase.table("spots")
-        .select("*")
+        .select("*, pods(is_in_use)")
         .eq("id", str(spot_id))
         .eq("is_active", True)
         .execute()

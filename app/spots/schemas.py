@@ -23,6 +23,7 @@ class SpotPin(BaseModel):
     noise_matrix: Optional[NoiseMatrixOutput]
     rating: Optional[float]
     is_open_now: Optional[bool]
+    is_in_use: Optional[bool] = None
     cover_photo: Optional[str]
 
 
@@ -39,6 +40,7 @@ class SpotDetail(BaseModel):
     noise_matrix: Optional[NoiseMatrixOutput]
     rating: Optional[float]
     is_open_now: Optional[bool]
+    is_in_use: Optional[bool] = None
     cover_photo: Optional[str]
     # Extended fields
     formatted_address: Optional[str]
