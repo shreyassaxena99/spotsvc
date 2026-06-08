@@ -135,7 +135,7 @@ def list_spots(
     category: Optional[SpotCategory] = None,
     is_open_now_filter: Optional[bool] = None,
 ) -> tuple[list[SpotPin], int]:
-    query = supabase.table("spots").select("*, pods(is_in_use)").eq("is_active", True)
+    query = supabase.table("spots").select("*, pods(in_use)").eq("is_active", True)
     if category is not None:
         query = query.eq("category", category.value)
     result = query.execute()
@@ -148,7 +148,7 @@ def list_spots(
 def get_spot(spot_id: uuid.UUID) -> SpotDetail:
     result = (
         supabase.table("spots")
-        .select("*, pods(is_in_use)")
+        .select("*, pods(in_use)")
         .eq("id", str(spot_id))
         .eq("is_active", True)
         .execute()
