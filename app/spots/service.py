@@ -67,6 +67,9 @@ def _pod_is_in_use(row: dict) -> Optional[bool]:
     pods = row.get("pods")
     if not pods:
         return None
+    # PostgREST returns a list for one-to-many joins, dict for many-to-one
+    if isinstance(pods, list):
+        return pods[0].get("in_use") if pods else None
     return pods.get("in_use")
 
 
