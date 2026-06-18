@@ -139,10 +139,14 @@ def _build_spot_detail(row: dict) -> SpotDetail:
 def list_spots(
     category: Optional[SpotCategory] = None,
     is_open_now_filter: Optional[bool] = None,
+    exclude_categories: Optional[list[SpotCategory]] = None,
 ) -> tuple[list[SpotPin], int]:
     query = supabase.table("spots").select("*, pods(in_use)").eq("is_active", True)
     if category is not None:
         query = query.eq("category", category.value)
+    if exclude_categories:
+        for cat in exclude_categories:
+            query = query.neq("category", cat.value)
     result = query.execute()
     pins = [_build_spot_pin(row) for row in result.data]
     if is_open_now_filter is not None:

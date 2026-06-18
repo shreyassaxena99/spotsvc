@@ -16,8 +16,14 @@ router = APIRouter()
 async def get_spots(
     category: Optional[SpotCategory] = None,
     is_open_now: Optional[bool] = None,
+    include_pods: bool = False,
 ) -> SpotsResponse:
-    pins, total = list_spots(category=category, is_open_now_filter=is_open_now)
+    exclude = None if include_pods else [SpotCategory.pod]
+    pins, total = list_spots(
+        category=category,
+        is_open_now_filter=is_open_now,
+        exclude_categories=exclude,
+    )
     return SpotsResponse(spots=pins, total=total)
 
 
