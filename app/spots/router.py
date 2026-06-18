@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 
+from app.config import settings
 from app.db.models import SpotCategory
 from app.spots.schemas import SpotDetail, SpotsResponse
 from app.spots.service import get_spot, list_spots
@@ -18,7 +19,7 @@ async def get_spots(
     is_open_now: Optional[bool] = None,
     include_pods: bool = False,
 ) -> SpotsResponse:
-    exclude = None if include_pods else [SpotCategory.pod]
+    exclude = None if (include_pods or settings.pods_enabled) else [SpotCategory.pod]
     pins, total = list_spots(
         category=category,
         is_open_now_filter=is_open_now,

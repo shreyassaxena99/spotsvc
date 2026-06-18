@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     admin_pwd: str
 
+    # Feature flags
+    pods_enabled: bool = False  # set to True in Railway when iOS ships pod support
+
     # APNs (push notifications)
     apns_key_content: Optional[str] = None  # PEM-encoded .p8 key contents
     apns_key_id: Optional[str] = None
