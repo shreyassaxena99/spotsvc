@@ -11,6 +11,7 @@ from app.admin.router import router as admin_router
 from app.admin.service import refresh_all_spots
 from app.saved.router import router as saved_router
 from app.spots.router import router as spots_router
+from app.toilets.router import router as toilets_router
 from app.suggestions.router import router as suggestions_router
 from app.users.router import router as users_router
 from app.config import settings
@@ -50,6 +51,7 @@ app.add_middleware(
 
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
 app.include_router(spots_router, prefix="/spots", tags=["spots"])
+app.include_router(toilets_router, prefix="/toilets", tags=["toilets"])
 app.include_router(suggestions_router)
 app.include_router(saved_router)
 app.include_router(users_router)

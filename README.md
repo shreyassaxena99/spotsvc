@@ -86,6 +86,20 @@ No authentication required.
 
 `category` values: `cafe` `gym` `hotel_lobby` `coworking` `library` `restaurant` `pod` `other`
 
+### Public — toilets (`/toilets/*`)
+
+No authentication required. These endpoints expose active Toilet Map records
+inside the approximate M25 envelope. Toilet records are read-only and are not
+eligible for saved spots or collections.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/toilets` | London toilet map pins |
+| `GET` | `/toilets/{id}` | Full detail for a London toilet |
+
+An example response for both endpoints is available in
+[`app/toilets/response_preview.json`](app/toilets/response_preview.json).
+
 ### Public — suggestions (`/suggestions`)
 
 | Method | Endpoint | Description |

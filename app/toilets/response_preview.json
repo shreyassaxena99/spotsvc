@@ -1,0 +1,57 @@
+{
+  "GET /toilets": {
+    "toilets": [
+      {
+        "id": "6d2e4e80-3a13-4b5c-8c6e-4f4f9e9d8b16",
+        "name": "Central Library Toilets",
+        "short_address": null,
+        "area_name": "Westminster",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "accessible": true,
+        "baby_change": true,
+        "men": true,
+        "women": true,
+        "all_gender": false,
+        "is_free": true
+      }
+    ],
+    "total": 1
+  },
+  "GET /toilets/6d2e4e80-3a13-4b5c-8c6e-4f4f9e9d8b16": {
+    "id": "6d2e4e80-3a13-4b5c-8c6e-4f4f9e9d8b16",
+    "name": "Central Library Toilets",
+    "short_address": null,
+    "area_name": "Westminster",
+    "latitude": 51.5074,
+    "longitude": -0.1278,
+    "accessible": true,
+    "baby_change": true,
+    "men": true,
+    "women": true,
+    "all_gender": false,
+    "is_free": true,
+    "description": "Public toilets inside the library building.",
+    "formatted_address": "Westminster, London",
+    "children": true,
+    "urinal_only": false,
+    "attended": false,
+    "automatic": false,
+    "radar_key_required": false,
+    "payment_details": null,
+    "regular_hours": [
+      ["09:00", "17:00"],
+      ["09:00", "17:00"],
+      ["09:00", "17:00"],
+      ["09:00", "17:00"],
+      ["09:00", "17:00"],
+      [],
+      []
+    ],
+    "current_hours": null,
+    "source_updated_at": "2026-09-28T00:00:00+00:00",
+    "source_verified_at": null,
+    "created_at": "2026-09-28T00:00:00+00:00",
+    "updated_at": "2026-09-28T00:00:00+00:00"
+  }
+}
