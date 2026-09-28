@@ -16,9 +16,10 @@ LONDON_MIN_LONGITUDE = -0.55
 LONDON_MAX_LONGITUDE = 0.35
 
 
-def _london_query(table: str):
+def _london_query(table: str, columns: str):
     return (
         supabase.table(table)
+        .select(columns)
         .eq("source", "toilet_map")
         .eq("is_active", True)
         .gte("latitude", LONDON_MIN_LATITUDE)
@@ -66,16 +67,17 @@ def _build_toilet_detail(row: dict) -> ToiletDetail:
 
 
 def list_toilets() -> tuple[list[ToiletPin], int]:
-    result = _london_query("toilets").select(
+    result = _london_query(
+        "toilets",
         "id,name,short_address,area_name,latitude,longitude,"
-        "accessible,baby_change,men,women,all_gender,is_free"
+        "accessible,baby_change,men,women,all_gender,is_free",
     ).execute()
     toilets = [_build_toilet_pin(row) for row in (result.data or [])]
     return toilets, len(toilets)
 
 
 def get_toilet(toilet_id: uuid.UUID) -> ToiletDetail:
-    result = _london_query("toilets").select("*").eq("id", str(toilet_id)).execute()
+    result = _london_query("toilets", "*").eq("id", str(toilet_id)).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Toilet not found")
     return _build_toilet_detail(result.data[0])

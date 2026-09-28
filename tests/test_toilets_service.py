@@ -86,6 +86,10 @@ def test_list_toilets_applies_london_and_active_filters(monkeypatch):
     toilets, total = service.list_toilets()
 
     table.assert_called_once_with("toilets")
+    assert (
+        "select",
+        ("id,name,short_address,area_name,latitude,longitude,accessible,baby_change,men,women,all_gender,is_free",),
+    ) in query.calls
     assert ("eq", ("source", "toilet_map")) in query.calls
     assert ("eq", ("is_active", True)) in query.calls
     assert ("gte", ("latitude", service.LONDON_MIN_LATITUDE)) in query.calls
