@@ -71,3 +71,9 @@ class SpotDetail(BaseModel):
 class SpotsResponse(BaseModel):
     spots: list[SpotPin]
     total: int
+
+
+class NearestSpotResponse(BaseModel):
+    spot: Optional[SpotPin]
+    walking_distance_meters: Optional[int]
+    walking_minutes: Optional[int]

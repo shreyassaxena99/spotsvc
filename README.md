@@ -55,6 +55,7 @@ No authentication required.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/spots` | All active spots as map pins. Supports `?category=` and `?is_open_now=true` filters. |
+| `GET` | `/spots/nearest?lat=&lng=` | Nearest active work spot across supported spot categories, with walking distance when routing is available. |
 | `GET` | `/spots/{id}` | Full detail for a single spot. |
 
 `GET /spots` response:
@@ -95,6 +96,7 @@ eligible for saved spots or collections.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/toilets` | London toilet map pins |
+| `GET` | `/toilets/nearest?lat=&lng=` | Nearest London toilet, with walking distance when routing is available. |
 | `GET` | `/toilets/{id}` | Full detail for a London toilet |
 
 An example response for both endpoints is available in

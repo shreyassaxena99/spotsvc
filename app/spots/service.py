@@ -8,11 +8,13 @@ from typing import Optional
 import pytz
 from fastapi import HTTPException
 
+from app.geo import distance_meters
 from app.db.database import supabase
 from app.db.models import SpotCategory
 from app.db.noise import noise_matrix_from_db
 from app.google_places.client import build_photo_url
 from app.spots.schemas import SpotDetail, SpotPin
+from app.routing.service import walking_route
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +167,22 @@ def get_spot(spot_id: uuid.UUID) -> SpotDetail:
     if not result.data:
         raise HTTPException(status_code=404, detail="Spot not found")
     return _build_spot_detail(result.data[0])
+
+
+def nearest_spot(latitude: float, longitude: float):
+    pins, _ = list_spots()
+    if not pins:
+        return None, None, None
+    candidates = sorted(
+        pins,
+        key=lambda spot: distance_meters(latitude, longitude, spot.latitude, spot.longitude),
+    )[:3]
+    routed = []
+    for candidate in candidates:
+        route = walking_route(latitude, longitude, candidate.latitude, candidate.longitude)
+        if route:
+            routed.append((route[0], route[1], candidate))
+    if routed:
+        walking_distance, walking_minutes, nearest = min(routed, key=lambda item: item[0])
+        return nearest, walking_distance, walking_minutes
+    return candidates[0], None, None

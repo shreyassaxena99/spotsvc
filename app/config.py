@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # Google Places API (New)
     google_places_api_key: str
+    google_routes_api_key: Optional[str] = None
 
     # PostHog
     posthog_api_key: Optional[str] = None

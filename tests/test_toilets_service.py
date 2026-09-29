@@ -107,3 +107,18 @@ def test_get_toilet_returns_404_for_outside_or_missing_toilet(monkeypatch):
     with pytest.raises(HTTPException) as error:
         service.get_toilet(uuid.uuid4())
     assert error.value.status_code == 404
+
+
+def test_nearest_toilet_falls_back_to_geographic_candidate_without_route(monkeypatch):
+    from app.toilets import service
+
+    row = _row(latitude=51.501)
+    pin = service._build_toilet_pin(row)
+    monkeypatch.setattr(service, "list_toilets", lambda: ([pin], 1))
+    monkeypatch.setattr(service, "walking_route", lambda *args: None)
+
+    toilet, distance, minutes = service.nearest_toilet(51.5, -0.1)
+
+    assert toilet.id == pin.id
+    assert distance is None
+    assert minutes is None

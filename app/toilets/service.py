@@ -4,6 +4,8 @@ import uuid
 
 from fastapi import HTTPException
 
+from app.geo import distance_meters
+from app.routing.service import walking_route
 from app.db.database import supabase
 from app.toilets.schemas import ToiletDetail, ToiletPin
 
@@ -81,3 +83,22 @@ def get_toilet(toilet_id: uuid.UUID) -> ToiletDetail:
     if not result.data:
         raise HTTPException(status_code=404, detail="Toilet not found")
     return _build_toilet_detail(result.data[0])
+
+
+def nearest_toilet(latitude: float, longitude: float):
+    toilets, _ = list_toilets()
+    if not toilets:
+        return None, None, None
+    candidates = sorted(
+        toilets,
+        key=lambda toilet: distance_meters(latitude, longitude, toilet.latitude, toilet.longitude),
+    )[:3]
+    routed = []
+    for candidate in candidates:
+        route = walking_route(latitude, longitude, candidate.latitude, candidate.longitude)
+        if route:
+            routed.append((route[0], route[1], candidate))
+    if routed:
+        walking_distance, walking_minutes, nearest = min(routed, key=lambda item: item[0])
+        return nearest, walking_distance, walking_minutes
+    return candidates[0], None, None

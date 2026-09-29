@@ -3,14 +3,27 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.config import settings
 from app.db.models import SpotCategory
-from app.spots.schemas import SpotDetail, SpotsResponse
-from app.spots.service import get_spot, list_spots
+from app.spots.schemas import NearestSpotResponse, SpotDetail, SpotsResponse
+from app.spots.service import get_spot, list_spots, nearest_spot
 
 router = APIRouter()
+
+
+@router.get("/nearest", response_model=NearestSpotResponse, tags=["spots"])
+def get_nearest_spot(
+    latitude: float = Query(..., alias="lat"),
+    longitude: float = Query(..., alias="lng"),
+) -> NearestSpotResponse:
+    spot, walking_distance, walking_minutes = nearest_spot(latitude, longitude)
+    return NearestSpotResponse(
+        spot=spot,
+        walking_distance_meters=walking_distance,
+        walking_minutes=walking_minutes,
+    )
 
 
 @router.get("", response_model=SpotsResponse, tags=["spots"])

@@ -42,3 +42,9 @@ class ToiletDetail(ToiletPin):
 class ToiletsResponse(BaseModel):
     toilets: list[ToiletPin]
     total: int
+
+
+class NearestToiletResponse(BaseModel):
+    toilet: Optional[ToiletPin]
+    walking_distance_meters: Optional[int]
+    walking_minutes: Optional[int]

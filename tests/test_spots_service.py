@@ -124,3 +124,22 @@ class TestBuildSpotDetail:
 
         detail = _build_spot_detail(_minimal_detail_row())
         assert detail.cover_photo == detail.photos[0]
+
+
+def test_nearest_spot_chooses_shortest_walking_candidate(monkeypatch):
+    from app.spots import service
+
+    first = service._build_spot_pin(_minimal_pin_row(id=str(uuid.uuid4()), latitude=51.5005))
+    second = service._build_spot_pin(_minimal_pin_row(id=str(uuid.uuid4()), latitude=51.5010))
+    monkeypatch.setattr(service, "list_spots", lambda: ([first, second], 2))
+    monkeypatch.setattr(
+        service,
+        "walking_route",
+        lambda lat, lng, dest_lat, dest_lng: (900, 12) if dest_lat == second.latitude else (1200, 15),
+    )
+
+    spot, distance, minutes = service.nearest_spot(51.5, -0.1)
+
+    assert spot.id == second.id
+    assert distance == 900
+    assert minutes == 12
